@@ -111,6 +111,8 @@ export { useEda } from './composables/useEda'
 export { useLlmAssist } from './composables/useLlmAssist'
 export { useModels } from './composables/useModels'
 export { useParameterComparison } from './composables/useParameterComparison'
+export { useSummarization } from './composables/useSummarization'
+export type { SummarizeOptions, SummaryInput } from './composables/useSummarization'
 export { useTraining } from './composables/useTraining'
 export { useTrainingCurves } from './composables/useTrainingCurves'
 export { TRAINING_METRIC_GROUPS, curveCharts, isLearningCurvePoint, metricGroupOf, metricUnitOf, stageEvents, xKindOf } from './utils/trainingCharts'
@@ -123,6 +125,9 @@ export { adviseFor, decisionTreeFor, IMBALANCE_RATIO, SMALL_DATASET_ROWS } from 
 export { ANNOTATION_STATE, annotationControls, annotationState, canSaveAnnotation, labelledRows, nothingToAnnotateReason } from './annotation/annotationState'
 export type { AnnotationControls, AnnotationScreenState, EntitySpan } from './annotation/annotationState'
 export { STRATEGY_COPY, holdoutClassText, retrainPrompt, trainingWarning, verificationText } from './annotation/activeLearning'
+export { buildExport, downloadExport } from './summarization/exportSummaries'
+export { SUMMARY_STATUS_LABEL, defaultSummaryModel, formatSummaryDate, isFinalRefusal, sourceBadgeClass, summaryFailureMessage, summaryModelChoices } from './summarization/summaryDisplay'
+export type { SummaryModelChoice } from './summarization/summaryDisplay'
 export type { DatasetFacts, DecisionTree, GuideAdvice, GuideContext, GuideNode, GuideOption } from './lens/modelGuide'
 
 export type {
