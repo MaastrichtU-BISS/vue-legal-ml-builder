@@ -173,13 +173,13 @@ async function confirmDelete(id: string) {
 
 <style scoped>
 .vmlb-list-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.75rem; }
-.vmlb-list-header h2 { margin: 0 0 0.25rem; font-size: 1.75rem; }
+.vmlb-list-header h2 { margin: 0 0 0.25rem; font-size: var(--vmlb-font-size-3xl); }
 .vmlb-list-header .vmlb-muted { margin: 0; max-width: 48ch; }
 .vmlb-capitalize { text-transform: capitalize; }
 .vmlb-confirm {
   display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto;
   padding-top: 0.75rem; border-top: 1px dashed var(--vmlb-border-strong);
-  font-size: 0.8125rem; color: var(--vmlb-text-muted);
+  font-size: var(--vmlb-font-size-sm); color: var(--vmlb-text-muted);
 }
 .vmlb-confirm-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 @media (max-width: 40rem) {

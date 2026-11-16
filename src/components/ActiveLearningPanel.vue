@@ -277,19 +277,19 @@ async function onAllowDestination(destination: string) {
 
 <style scoped>
 .vmlb-al { margin-bottom: 1.25rem; padding: 1.25rem 1.5rem; }
-.vmlb-al-title { margin: 0 0 0.35rem; font-size: 1rem; font-weight: 600; }
+.vmlb-al-title { margin: 0 0 0.35rem; font-size: var(--vmlb-font-size-base); font-weight: 600; }
 .vmlb-al-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5rem 1rem; }
-.vmlb-al-strategy { font-size: 0.8125rem; }
+.vmlb-al-strategy { font-size: var(--vmlb-font-size-sm); }
 .vmlb-al-strategy select { font: inherit; color: var(--vmlb-text); background: var(--vmlb-surface); border: 1px solid var(--vmlb-border-strong); border-radius: var(--vmlb-radius-sm); padding: 0.1rem 0.25rem; }
-.vmlb-al-prompt { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 0.75rem; font-size: 0.875rem; }
+.vmlb-al-prompt { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 0.75rem; font-size: var(--vmlb-font-size-md); }
 .vmlb-al-prompt-ask { padding: 0.65rem 0.85rem; border-radius: var(--vmlb-radius-md); background: var(--vmlb-accent-soft); font-weight: 600; }
-.vmlb-al-warning { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0.75rem 0 0; padding: 0.65rem 0.85rem; border-radius: var(--vmlb-radius-md); background: var(--vmlb-warning-soft); color: var(--vmlb-text); font-size: 0.875rem; }
-.vmlb-al-correct { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 0.75rem; font-size: 0.8125rem; }
+.vmlb-al-warning { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0.75rem 0 0; padding: 0.65rem 0.85rem; border-radius: var(--vmlb-radius-md); background: var(--vmlb-warning-soft); color: var(--vmlb-text); font-size: var(--vmlb-font-size-md); }
+.vmlb-al-correct { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-top: 0.75rem; font-size: var(--vmlb-font-size-sm); }
 .vmlb-al-correct select,
 .vmlb-al-correct input { font: inherit; color: var(--vmlb-text); background: var(--vmlb-surface); border: 1px solid var(--vmlb-border-strong); border-radius: var(--vmlb-radius-sm); padding: 0.1rem 0.25rem; }
-.vmlb-al-holdout { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.85rem; margin-top: 0.75rem; font-size: 0.8125rem; }
+.vmlb-al-holdout { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.85rem; margin-top: 0.75rem; font-size: var(--vmlb-font-size-sm); }
 .vmlb-al-unverified { background: var(--vmlb-surface-sunken); color: var(--vmlb-text); }
-.vmlb-al-advanced { margin: 0.75rem 0; font-size: 0.875rem; }
+.vmlb-al-advanced { margin: 0.75rem 0; font-size: var(--vmlb-font-size-md); }
 .vmlb-al-advanced summary { cursor: pointer; font-weight: 600; }
 .vmlb-al-advanced fieldset { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.75rem 0 0; padding: 0; border: 0; }
 .vmlb-al-advanced input[type='number'] { width: 4.5rem; padding: 0.15rem 0.3rem; font: inherit; }

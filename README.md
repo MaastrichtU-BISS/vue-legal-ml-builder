@@ -303,8 +303,12 @@ palette. The public keys (also exported as `themeTokens`, typed `ThemeToken`) ar
 `canvas`, `surface`, `surface-sunken`, `border`, `border-strong`, `text`,
 `text-muted`, `text-subtle`, `accent`, `accent-strong`, `accent-soft`, `on-accent`,
 `success`/`warning`/`error` (+ `-soft`), `font-display`/`font-sans`/`font-mono`,
-`radius-sm`/`md`/`lg`, `shadow-sm`/`md`/`lg`, `space-2xs`…`space-2xl`, `container`,
-and `density`. Add `vmlb-theme--compact` for tighter density. Adding a preset is a
+`font-size-2xs`…`font-size-3xl` (`2xs`, `xs`, `sm`, `md`, `base`, `lg`, `xl`,
+`2xl`, `3xl`), `label-case`/`label-tracking`, `radius-sm`/`md`/`lg`,
+`shadow-sm`/`md`/`lg`, `space-2xs`…`space-2xl`, `container`, and `density`.
+Every font size in the package is a `font-size-*` token, so a host can map the
+scale onto its own; set `label-case: none` and `label-tracking: 0` for
+sentence-case labels and eyebrows. Add `vmlb-theme--compact` for tighter density. Adding a preset is a
 data-only change in `src/theme/presets.ts`.
 
 ## Visualization & bundle size

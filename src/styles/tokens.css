@@ -74,6 +74,24 @@
   --vmlb-font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --vmlb-font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
+  /* Type scale. Every font size in the package is one of these, so a host can
+     map them onto its own scale. 2xs is for eyebrows and chart captions, sm for
+     secondary text, md for body text in dense panels, lg for section and step
+     titles, 3xl for a page title. */
+  --vmlb-font-size-2xs: 0.6875rem;
+  --vmlb-font-size-xs: 0.75rem;
+  --vmlb-font-size-sm: 0.8125rem;
+  --vmlb-font-size-md: 0.875rem;
+  --vmlb-font-size-base: 1rem;
+  --vmlb-font-size-lg: 1.125rem;
+  --vmlb-font-size-xl: 1.25rem;
+  --vmlb-font-size-2xl: 1.5rem;
+  --vmlb-font-size-3xl: 1.75rem;
+  /* Small labels and eyebrows (.vmlb-label and alike): a host that writes
+     labels in sentence case sets the case to none and the tracking to 0. */
+  --vmlb-label-case: uppercase;
+  --vmlb-label-tracking: 0.06em;
+
   /* Shape */
   --vmlb-radius-sm: 0.25rem;
   --vmlb-radius-md: 0.5rem;
@@ -144,7 +162,7 @@
 .vmlb-theme {
   color: var(--vmlb-text);
   font-family: var(--vmlb-font-sans);
-  font-size: 1rem;
+  font-size: var(--vmlb-font-size-base);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;

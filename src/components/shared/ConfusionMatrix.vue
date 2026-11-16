@@ -69,17 +69,17 @@ function cellClass(row: number, col: number, value: number) {
 </template>
 
 <style scoped>
-.vmlb-cm-title { margin: 0 0 var(--vmlb-space-sm); font-family: var(--vmlb-font-display); font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.01em; }
+.vmlb-cm-title { margin: 0 0 var(--vmlb-space-sm); font-family: var(--vmlb-font-display); font-size: var(--vmlb-font-size-lg); font-weight: 600; letter-spacing: -0.01em; }
 .vmlb-cm-scroll { overflow-x: auto; }
-.vmlb-cm-table { font-size: 0.875rem; border-collapse: separate; border-spacing: 0; }
+.vmlb-cm-table { font-size: var(--vmlb-font-size-md); border-collapse: separate; border-spacing: 0; }
 .vmlb-cm-table th, .vmlb-cm-table td { border-bottom: 1px solid var(--vmlb-border); padding: 0.5rem 0.75rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .vmlb-cm-table tr:last-child td { border-bottom: none; }
-.vmlb-cm-corner, .vmlb-cm-colhead, .vmlb-cm-rowhead { background: var(--vmlb-surface-sunken); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.03em; color: var(--vmlb-text-muted); }
+.vmlb-cm-corner, .vmlb-cm-colhead, .vmlb-cm-rowhead { background: var(--vmlb-surface-sunken); font-size: var(--vmlb-font-size-2xs); font-weight: 600; letter-spacing: 0.03em; color: var(--vmlb-text-muted); }
 .vmlb-cm-colhead { text-align: center; }
 .vmlb-cm-rowhead { text-align: right; }
 .vmlb-cm-cell { text-align: center; color: var(--vmlb-text); }
 .vmlb-cm-diag { background: var(--vmlb-success-soft); color: var(--vmlb-success); font-weight: 700; }
 .vmlb-cm-off { background: var(--vmlb-error-soft); color: var(--vmlb-error); font-weight: 600; }
 .vmlb-cm-zero { color: var(--vmlb-text-subtle); }
-.vmlb-cm-caption { font-size: 0.75rem; color: var(--vmlb-text-subtle); margin-top: var(--vmlb-space-xs); }
+.vmlb-cm-caption { font-size: var(--vmlb-font-size-xs); color: var(--vmlb-text-subtle); margin-top: var(--vmlb-space-xs); }
 </style>

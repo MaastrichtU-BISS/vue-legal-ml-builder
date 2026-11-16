@@ -122,7 +122,7 @@ async function runPredict() {
 .vmlb-detail { max-width: 62rem; margin: 0 auto; }
 .vmlb-detail-skeleton { display: flex; flex-direction: column; gap: 1.25rem; }
 .vmlb-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.75rem; }
-.vmlb-header h2 { margin: 0 0 0.25rem; font-size: 1.75rem; }
+.vmlb-header h2 { margin: 0 0 0.25rem; font-size: var(--vmlb-font-size-3xl); }
 .vmlb-header .vmlb-muted { margin: 0; }
 .vmlb-card { margin-bottom: 1.25rem; }
 .vmlb-card-title { margin-top: 0; }
@@ -130,7 +130,7 @@ async function runPredict() {
 .vmlb-card textarea {
   width: 100%; box-sizing: border-box;
   border: 1px solid var(--vmlb-border-strong); border-radius: var(--vmlb-radius-md);
-  padding: 0.6rem 0.75rem; font-family: inherit; font-size: 0.875rem;
+  padding: 0.6rem 0.75rem; font-family: inherit; font-size: var(--vmlb-font-size-md);
   background: var(--vmlb-surface); color: var(--vmlb-text);
   margin-bottom: 0.75rem; resize: vertical;
 }

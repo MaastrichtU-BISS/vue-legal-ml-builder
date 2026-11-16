@@ -450,7 +450,7 @@ async function createModel() {
   display: flex; align-items: center; gap: 0.75rem;
   margin: 0 0 1rem;
   font-family: var(--vmlb-font-display);
-  font-size: 1.1875rem; font-weight: 600; letter-spacing: -0.01em;
+  font-size: var(--vmlb-font-size-lg); font-weight: 600; letter-spacing: -0.01em;
 }
 .vmlb-step-num {
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
@@ -458,12 +458,12 @@ async function createModel() {
   border-radius: var(--vmlb-radius-sm);
   background: var(--vmlb-accent); color: var(--vmlb-on-accent);
   font-family: var(--vmlb-font-sans);
-  font-size: 0.8125rem; font-weight: 700;
+  font-size: var(--vmlb-font-size-sm); font-weight: 700;
 }
 .vmlb-indent { margin-left: 2.35rem; margin-top: -0.5rem; }
 .vmlb-configure { display: grid; grid-template-columns: 1fr 1fr; gap: 1.75rem; align-items: start; }
 .vmlb-configure-lens { position: sticky; top: 1rem; }
-.vmlb-lens-footnote { margin-top: 0.75rem; font-size: 0.75rem; color: var(--vmlb-text-subtle); max-width: 46ch; }
+.vmlb-lens-footnote { margin-top: 0.75rem; font-size: var(--vmlb-font-size-xs); color: var(--vmlb-text-subtle); max-width: 46ch; }
 @media (max-width: 46rem) { .vmlb-configure { grid-template-columns: 1fr; } .vmlb-configure-lens { position: static; } }
 .vmlb-model-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .vmlb-model-card {
@@ -483,17 +483,17 @@ async function createModel() {
 .vmlb-model-card.vmlb-unusable:hover { transform: none; box-shadow: none; border-color: var(--vmlb-border); }
 .vmlb-model-card.vmlb-unusable .vmlb-model-card-head,
 .vmlb-model-card.vmlb-unusable .vmlb-model-desc { opacity: 0.6; }
-.vmlb-model-why { margin: 0.5rem 0 0; font-size: 0.85rem; line-height: 1.45; color: var(--vmlb-text); }
+.vmlb-model-why { margin: 0.5rem 0 0; font-size: var(--vmlb-font-size-sm); line-height: 1.45; color: var(--vmlb-text); }
 .vmlb-no-fit { margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: var(--vmlb-radius-md); border: 1px solid var(--vmlb-warning); background: var(--vmlb-warning-soft); color: var(--vmlb-text); }
 .vmlb-no-fit p { margin: 0.25rem 0; }
 .vmlb-model-card.vmlb-selected { border-color: var(--vmlb-accent); background: var(--vmlb-accent-soft); box-shadow: var(--vmlb-shadow-sm); }
 .vmlb-model-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
-.vmlb-model-card-head h3 { margin: 0; font-size: 0.9375rem; font-weight: 600; }
-.vmlb-model-desc { font-size: 0.75rem; color: var(--vmlb-text-muted); margin: 0.25rem 0 0.6rem; }
+.vmlb-model-card-head h3 { margin: 0; font-size: var(--vmlb-font-size-base); font-weight: 600; }
+.vmlb-model-desc { font-size: var(--vmlb-font-size-xs); color: var(--vmlb-text-muted); margin: 0.25rem 0 0.6rem; }
 .vmlb-model-info {
   margin-top: 0.75rem; padding-top: 0.75rem;
   border-top: 1px solid var(--vmlb-border);
-  font-size: 0.75rem; color: var(--vmlb-text-muted); line-height: 1.55;
+  font-size: var(--vmlb-font-size-xs); color: var(--vmlb-text-muted); line-height: 1.55;
 }
 .vmlb-model-info ul { margin: 0.5rem 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.25rem; }
 .vmlb-model-info li { display: flex; align-items: flex-start; gap: 0.35rem; }
@@ -504,6 +504,6 @@ async function createModel() {
 .vmlb-refusal .vmlb-alert-error { margin: var(--vmlb-space-md) 0 0; }
 .vmlb-refusal-link { display: block; min-height: 44px; color: inherit; text-decoration: underline; }
 .vmlb-chooser { margin-bottom: 1rem; }
-.vmlb-advanced summary { cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--vmlb-text); }
+.vmlb-advanced summary { cursor: pointer; font-size: var(--vmlb-font-size-md); font-weight: 600; color: var(--vmlb-text); }
 .vmlb-advanced[open] summary { margin-bottom: 0.5rem; }
 </style>

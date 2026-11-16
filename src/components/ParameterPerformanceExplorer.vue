@@ -95,7 +95,7 @@ const paramExplanation = computed(() => {
 <style scoped>
 .vmlb-explorer { max-width: 62rem; margin: 0 auto; }
 .vmlb-explorer-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
-.vmlb-explorer-head h2 { margin: 0; font-size: 1.75rem; }
+.vmlb-explorer-head h2 { margin: 0; font-size: var(--vmlb-font-size-3xl); }
 .vmlb-controls { display: flex; gap: 1rem; }
 .vmlb-controls label { display: flex; flex-direction: column; gap: 0.375rem; }
 .vmlb-controls select { min-width: 9rem; }
@@ -104,6 +104,6 @@ const paramExplanation = computed(() => {
   background: var(--vmlb-surface-sunken);
   border-left: 2px solid var(--vmlb-accent);
   border-radius: var(--vmlb-radius-sm);
-  font-size: 0.8125rem; color: var(--vmlb-text-muted); line-height: 1.55;
+  font-size: var(--vmlb-font-size-sm); color: var(--vmlb-text-muted); line-height: 1.55;
 }
 </style>

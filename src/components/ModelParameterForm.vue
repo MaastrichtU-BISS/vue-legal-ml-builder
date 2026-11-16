@@ -143,7 +143,7 @@ defineExpose({ labelFor })
 </template>
 
 <style scoped>
-.vmlb-advanced summary { cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--vmlb-text); }
+.vmlb-advanced summary { cursor: pointer; font-size: var(--vmlb-font-size-md); font-weight: 600; color: var(--vmlb-text); }
 .vmlb-advanced[open] summary { margin-bottom: 0.5rem; }
 .vmlb-advanced .vmlb-params { margin-top: 0.75rem; }
 .vmlb-params { border: 1px solid var(--vmlb-border); border-radius: var(--vmlb-radius-md); overflow: hidden; }
@@ -158,18 +158,18 @@ defineExpose({ labelFor })
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--vmlb-border-strong);
   border-radius: var(--vmlb-radius-sm);
-  background: var(--vmlb-surface); color: var(--vmlb-text); font-family: inherit; font-size: 0.875rem;
+  background: var(--vmlb-surface); color: var(--vmlb-text); font-family: inherit; font-size: var(--vmlb-font-size-md);
 }
 .vmlb-param-input [aria-invalid='true'] { border-color: var(--vmlb-error); box-shadow: 0 0 0 1px var(--vmlb-error); }
-.vmlb-param-note { flex-basis: 100%; margin: 0; font-size: 0.75rem; color: var(--vmlb-text-muted); }
-.vmlb-param-explain { flex-basis: 100%; background: var(--vmlb-surface-sunken); border-radius: var(--vmlb-radius-sm); padding: 0.75rem; font-size: 0.8125rem; color: var(--vmlb-text-muted); line-height: 1.55; }
+.vmlb-param-note { flex-basis: 100%; margin: 0; font-size: var(--vmlb-font-size-xs); color: var(--vmlb-text-muted); }
+.vmlb-param-explain { flex-basis: 100%; background: var(--vmlb-surface-sunken); border-radius: var(--vmlb-radius-sm); padding: 0.75rem; font-size: var(--vmlb-font-size-sm); color: var(--vmlb-text-muted); line-height: 1.55; }
 .vmlb-option-line { display: flex; gap: 0.5rem; margin: 0.25rem 0; }
-.vmlb-option-line code { background: var(--vmlb-surface); border: 1px solid var(--vmlb-border); padding: 0.0625rem 0.375rem; border-radius: var(--vmlb-radius-sm); font-size: 0.75rem; }
+.vmlb-option-line code { background: var(--vmlb-surface); border: 1px solid var(--vmlb-border); padding: 0.0625rem 0.375rem; border-radius: var(--vmlb-radius-sm); font-size: var(--vmlb-font-size-xs); }
 .vmlb-recommendation {
   display: flex; align-items: flex-start; gap: 0.4rem;
   margin-top: 0.5rem; padding: 0.5rem 0.75rem;
   background: var(--vmlb-accent-soft);
   border-radius: var(--vmlb-radius-sm);
-  font-size: 0.75rem; color: var(--vmlb-accent-strong);
+  font-size: var(--vmlb-font-size-xs); color: var(--vmlb-accent-strong);
 }
 </style>

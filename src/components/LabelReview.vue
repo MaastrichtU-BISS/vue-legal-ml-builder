@@ -158,13 +158,13 @@ const labelset = computed(() => kitLabelset([...new Set([...(opened.value?.label
 <style scoped>
 .vmlb-review { margin-top: 1rem; }
 .vmlb-review-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1rem; }
-.vmlb-review-title { margin: 0; font-size: 1.125rem; }
+.vmlb-review-title { margin: 0; font-size: var(--vmlb-font-size-lg); }
 .vmlb-review-filter { display: flex; align-items: center; gap: 0.5rem; margin-left: auto; }
 .vmlb-review-filter select {
   padding: 0.3rem 0.5rem; border: 1px solid var(--vmlb-border); border-radius: var(--vmlb-radius-sm);
-  background: var(--vmlb-surface); color: var(--vmlb-text); font: inherit; font-size: 0.875rem;
+  background: var(--vmlb-surface); color: var(--vmlb-text); font: inherit; font-size: var(--vmlb-font-size-md);
 }
-.vmlb-review-intro { margin: 0.5rem 0 1rem; font-size: 0.875rem; }
-.vmlb-review-source { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0 0 0.5rem; font-size: 0.8125rem; }
-.vmlb-review-notice { margin-top: 0.5rem; font-size: 0.875rem; }
+.vmlb-review-intro { margin: 0.5rem 0 1rem; font-size: var(--vmlb-font-size-md); }
+.vmlb-review-source { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0 0 0.5rem; font-size: var(--vmlb-font-size-sm); }
+.vmlb-review-notice { margin-top: 0.5rem; font-size: var(--vmlb-font-size-md); }
 </style>

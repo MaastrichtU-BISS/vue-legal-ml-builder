@@ -420,14 +420,14 @@ function tokenX(i: number, total: number): number {
   background: var(--vmlb-surface, #fffdf9);
 }
 .vmlb-lens-badge {
-  font-size: 0.6875rem;
+  font-size: var(--vmlb-font-size-2xs);
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: var(--vmlb-label-tracking);
+  text-transform: var(--vmlb-label-case);
   color: var(--vmlb-lens-boundary, #0b4a46);
 }
 .vmlb-lens-source {
-  font-size: 0.6875rem;
+  font-size: var(--vmlb-font-size-2xs);
   color: var(--vmlb-text-muted, #6d6455);
 }
 .vmlb-lens-canvas {
@@ -457,10 +457,10 @@ function tokenX(i: number, total: number): number {
 .vmlb-lens-token-text { font-size: 11px; fill: var(--vmlb-text, #1b1916); font-family: var(--vmlb-lens-font-mono, monospace); }
 .vmlb-lens-attention { stroke-linecap: round; }
 .vmlb-lens-caption { padding: 0.875rem; border-top: 1px solid var(--vmlb-border, #e2dccd); background: var(--vmlb-surface, #fffdf9); }
-.vmlb-lens-headline { font-family: var(--vmlb-font-display, Georgia, serif); font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--vmlb-text, #1b1916); }
-.vmlb-lens-reading { margin-top: 0.375rem; font-size: 0.8125rem; line-height: 1.55; color: var(--vmlb-text-muted, #6d6455); max-width: 62ch; }
+.vmlb-lens-headline { font-family: var(--vmlb-font-display, Georgia, serif); font-size: var(--vmlb-font-size-base); font-weight: 600; letter-spacing: -0.01em; color: var(--vmlb-text, #1b1916); }
+.vmlb-lens-reading { margin-top: 0.375rem; font-size: var(--vmlb-font-size-sm); line-height: 1.55; color: var(--vmlb-text-muted, #6d6455); max-width: 62ch; }
 .vmlb-lens-legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; margin-top: 0.75rem; list-style: none; padding: 0; }
-.vmlb-lens-legend li { display: flex; flex-direction: column; font-size: 0.6875rem; }
+.vmlb-lens-legend li { display: flex; flex-direction: column; font-size: var(--vmlb-font-size-2xs); }
 .vmlb-lens-legend strong { color: var(--vmlb-lens-boundary, #0b4a46); font-weight: 600; }
 .vmlb-lens-legend span { color: var(--vmlb-text-muted, #6d6455); }
 </style>
