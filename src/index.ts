@@ -17,6 +17,15 @@ import ConfusionMatrix from './components/shared/ConfusionMatrix.vue'
 import ModelLens from './components/shared/ModelLens.vue'
 import PlotlyChart from './components/shared/PlotlyChart.vue'
 import ThemeSwitcher from './components/shared/ThemeSwitcher.vue'
+import SegmentationEditor from './components/summarization/SegmentationEditor.vue'
+import SummarizationWidget from './components/summarization/SummarizationWidget.vue'
+import SummaryControls from './components/summarization/SummaryControls.vue'
+import SummaryDisplay from './components/summarization/SummaryDisplay.vue'
+import SummaryExportPanel from './components/summarization/SummaryExportPanel.vue'
+import SummaryInputPanel from './components/summarization/SummaryInputPanel.vue'
+import SummaryProgress from './components/summarization/SummaryProgress.vue'
+import SummaryResultsPanel from './components/summarization/SummaryResultsPanel.vue'
+import SummaryVersionHistory from './components/summarization/SummaryVersionHistory.vue'
 import TrainingCurves from './components/TrainingCurves.vue'
 import TrainingMonitor from './components/TrainingMonitor.vue'
 import { MlBuilderThemeProvider, applyTheme, clearTheme, createTheme, ensurePresetStyles } from './theme'
@@ -32,9 +41,9 @@ function resolveAdapter(opts: MLBuilderPluginOptions): MLAdapter {
   return createSelfHostedAdapter(opts.adapter)
 }
 
-/** Vue plugin — registers all components globally and provides the adapter
- * (mirrors vue-legal-summarizer's VueLegalSummarizerPlugin). Components also
- * accept an explicit `adapter` prop for non-plugin, directly-imported usage. */
+/** Vue plugin — registers all components globally and provides the adapter.
+ * Components also accept an explicit `adapter` prop for non-plugin,
+ * directly-imported usage. */
 export const VueLegalMlBuilderPlugin = {
   install(app: App, opts: MLBuilderPluginOptions) {
     const adapter = resolveAdapter(opts)
@@ -63,6 +72,15 @@ export const VueLegalMlBuilderPlugin = {
     app.component('ModelLens', ModelLens)
     app.component('PlotlyChart', PlotlyChart)
     app.component('ThemeSwitcher', ThemeSwitcher)
+    app.component('SegmentationEditor', SegmentationEditor)
+    app.component('SummarizationWidget', SummarizationWidget)
+    app.component('SummaryControls', SummaryControls)
+    app.component('SummaryDisplay', SummaryDisplay)
+    app.component('SummaryExportPanel', SummaryExportPanel)
+    app.component('SummaryInputPanel', SummaryInputPanel)
+    app.component('SummaryProgress', SummaryProgress)
+    app.component('SummaryResultsPanel', SummaryResultsPanel)
+    app.component('SummaryVersionHistory', SummaryVersionHistory)
   },
 }
 
@@ -88,6 +106,15 @@ export {
   ModelQuestionTree,
   ParameterPerformanceExplorer,
   PlotlyChart,
+  SegmentationEditor,
+  SummarizationWidget,
+  SummaryControls,
+  SummaryDisplay,
+  SummaryExportPanel,
+  SummaryInputPanel,
+  SummaryProgress,
+  SummaryResultsPanel,
+  SummaryVersionHistory,
   ThemeSwitcher,
   TrainingCurves,
   TrainingMonitor,
