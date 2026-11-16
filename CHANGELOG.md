@@ -28,6 +28,18 @@ tagged `vX.Y.Z`.
 - The model picker is filled from `GET /api/summarize/models`; abstractive models
   are disabled while the server reports none available.
 - `buildExport`, `downloadExport` and the summarization types are exported.
+- `LlmStatus.shared_key_configured`, optional: whether the platform has a shared
+  key at all, for any account.
+
+### Fixed
+
+- **The LLM panel blamed the account when the platform had no shared key.**
+  With `mode: 'none'` it said "not available for your account" whether the
+  deployment had no shared key or had one this account may not use. When the
+  status says `shared_key_configured: false` it now says "This platform has no
+  shared LLM key. Add your own API key to use LLM suggestions." Without the
+  field (older servers) the wording is unchanged. Needs legal-ml-core 0.14.1 for
+  the new wording (reducing_digital_divide #155).
 
 ### Changed
 
@@ -439,7 +451,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.2...HEAD
+[0.10.2]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.8.0...v0.9.0

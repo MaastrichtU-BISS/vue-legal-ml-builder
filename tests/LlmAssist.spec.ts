@@ -103,13 +103,32 @@ describe('LLM assistance: status and own key', () => {
     wrapper.unmount()
   })
 
-  it('offers an own key when the account has no access', async () => {
+  it('offers an own key when the account has no access (older servers do not say whether a shared key exists)', async () => {
     const status = llmStatus({ mode: 'none', destination: null, model: null, shared_key_allowed: false, remaining_tokens: null, acknowledged: false })
     const { wrapper } = await mounted({ getLlmStatus: vi.fn().mockResolvedValue(status) })
 
     expect(panel(wrapper).text()).toContain('LLM suggestions are not available for your account. Add your own API key to use them.')
     expect(wrapper.find('input[type="password"]').exists()).toBe(true)
     expect(button(wrapper, 'Suggest labels for this batch')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('says when the platform has no shared key, not that the account cannot use it', async () => {
+    const status = llmStatus({ mode: 'none', destination: null, model: null, shared_key_allowed: false, shared_key_configured: false, remaining_tokens: null, acknowledged: false })
+    const { wrapper } = await mounted({ getLlmStatus: vi.fn().mockResolvedValue(status) })
+
+    expect(panel(wrapper).text()).toContain('This platform has no shared LLM key. Add your own API key to use LLM suggestions.')
+    expect(panel(wrapper).text()).not.toContain('for your account')
+    expect(wrapper.find('input[type="password"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('blames the account when the platform has a shared key it may not use', async () => {
+    const status = llmStatus({ mode: 'none', destination: null, model: null, shared_key_allowed: false, shared_key_configured: true, remaining_tokens: null, acknowledged: false })
+    const { wrapper } = await mounted({ getLlmStatus: vi.fn().mockResolvedValue(status) })
+
+    expect(panel(wrapper).text()).toContain('LLM suggestions are not available for your account. Add your own API key to use them.')
+    expect(panel(wrapper).text()).not.toContain('no shared LLM key')
     wrapper.unmount()
   })
 
