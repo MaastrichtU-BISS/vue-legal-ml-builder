@@ -73,7 +73,8 @@ tagged `vX.Y.Z`.
   the kit's `--lak-font-size-2xs` … `-base`, `--lak-label-case` and
   `--lak-label-tracking` onto the builder's tokens, so the kit's panels,
   suggestion cards and badges use the same sizes as the rest of the builder.
-  Takes effect with a kit that reads those variables.
+  The kit pin moves to `ede6317`, which reads them
+  (MaastrichtU-BISS/vue-legal-annotation-kit#13).
 - Errors from `createSelfHostedAdapter` carry the response's HTTP `status`.
 
 ### Removed, compared with the standalone summarizer
