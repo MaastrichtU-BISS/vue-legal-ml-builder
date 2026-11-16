@@ -11,6 +11,37 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Added
+
+- Summarization, folded in from the standalone summarizer package, which is
+  retired. `SummarizationWidget` composes `SummaryInputPanel`, `SummaryControls`,
+  `SummaryProgress` and `SummaryDisplay`; `SummaryResultsPanel`,
+  `SummaryVersionHistory`, `SegmentationEditor` and `SummaryExportPanel` read a
+  host-supplied `SummaryStoreAdapter`. All are registered by the plugin, styled
+  with the builder's tokens, and shown in the demo's Summarise view.
+- Optional `MLAdapter` methods `summarize`, `getSummarizationJob` and
+  `getSummarizationModels` for legal-ml-core's `/api/summarize` routes, implemented
+  by `createSelfHostedAdapter` and the demo adapter.
+- `useSummarization` polls a request until it is `complete` or `error`; a 404 or
+  other 4xx ends it at once, a network error or 5xx is retried up to five times
+  in a row.
+- The model picker is filled from `GET /api/summarize/models`; abstractive models
+  are disabled while the server reports none available.
+- `buildExport`, `downloadExport` and the summarization types are exported.
+
+### Changed
+
+- Errors from `createSelfHostedAdapter` carry the response's HTTP `status`.
+
+### Removed, compared with the standalone summarizer
+
+- The adapters that called hosted LLM APIs directly, and the separate summarization adapter type:
+  summaries go through the self-hosted backend only.
+- Server-sent events: progress is polled only.
+- The `theme` prop and `--vsumm-*` tokens: the builder's theme applies.
+- The `availableModels` prop: models come from the server.
+- PDF and Word uploads, which were read as text: uploads are plain `.txt`.
+
 ## [0.8.0] - 2026-11-13
 
 ### Added
