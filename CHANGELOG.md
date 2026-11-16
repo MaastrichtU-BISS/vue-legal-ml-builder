@@ -13,6 +13,15 @@ tagged `vX.Y.Z`.
 
 ### Added
 
+- **The demo offers LLM suggestions** (BAIGLE #156): an Annotate view on a
+  Dataset of 40 lease clauses, and LLM methods on the demo adapter that run in
+  memory, with no network calls. A keyword rule stands in for the model
+  (`shall not` → Prohibition, `shall`/`must` → Obligation, `may` → Permission),
+  with a one-line reason. It keeps legal-ml-core's rules: consent per Dataset
+  before anything is sent, at most 10 items a request, a 200,000-token monthly
+  limit on the shared key, and bulk accept at 30 checked items with 80%
+  agreement. Labelling many items runs as a short job. Demo code only: the
+  published library is unchanged.
 - Summarization, folded in from the standalone summarizer package, which is
   retired. `SummarizationWidget` composes `SummaryInputPanel`, `SummaryControls`,
   `SummaryProgress` and `SummaryDisplay`; `SummaryResultsPanel`,

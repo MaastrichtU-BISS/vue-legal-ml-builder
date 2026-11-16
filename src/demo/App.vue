@@ -2,6 +2,7 @@
 import { inject, ref } from 'vue'
 import type { MLAdapter, SummaryDocument } from '../types'
 import type { ThemeId } from '../theme'
+import { DEMO_ANNOTATION_DATASET } from './mockAdapter'
 
 const injectedAdapter = inject<MLAdapter | null>('vmlb:adapter', null)
 
@@ -11,6 +12,7 @@ type View =
   | { name: 'create'; datasetId?: string }
   | { name: 'train'; modelId: string }
   | { name: 'compare' }
+  | { name: 'annotate' }
   | { name: 'detail'; modelId: string }
   | { name: 'summarize' }
 
@@ -21,6 +23,7 @@ const NAV = [
   { name: 'datasets' as const, label: 'Datasets' },
   { name: 'models' as const, label: 'Models' },
   { name: 'compare' as const, label: 'Compare' },
+  { name: 'annotate' as const, label: 'Annotate' },
   { name: 'summarize' as const, label: 'Summarise' },
 ]
 
@@ -39,7 +42,7 @@ const SAMPLE_DOCUMENTS: SummaryDocument[] = [
   },
 ]
 
-function go(name: 'datasets' | 'models' | 'compare' | 'summarize') {
+function go(name: 'datasets' | 'models' | 'compare' | 'annotate' | 'summarize') {
   view.value = { name }
 }
 </script>
@@ -97,6 +100,14 @@ function go(name: 'datasets' | 'models' | 'compare' | 'summarize') {
         v-else-if="view.name === 'compare'"
         :adapter="injectedAdapter ?? undefined"
         model-type="svm"
+      />
+      <AnnotationWorkspace
+        v-else-if="view.name === 'annotate'"
+        project-id="demo-project"
+        :dataset-id="DEMO_ANNOTATION_DATASET"
+        project-name="Lease clauses"
+        task-type="classification"
+        guidelines="Label each clause by what it does: imposes a duty (Obligation), grants a right (Permission) or forbids an act (Prohibition)."
       />
       <ModelDetail
         v-else-if="view.name === 'detail'"
