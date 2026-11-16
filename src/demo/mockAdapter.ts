@@ -4,6 +4,10 @@ import type {
   MLAdapter,
   MlModel,
   ModelCatalog,
+  SummarizationError,
+  SummarizationJob,
+  SummarizationModels,
+  SummaryLength,
   TrainingJob,
   TrainingMetricPoint,
 } from '../types'
@@ -75,6 +79,8 @@ const models: MlModel[] = [
   },
 ]
 const jobs: Record<string, TrainingJob> = {}
+const summaries: Record<string, { job: SummarizationJob; polls: number; text: string }> = {}
+let summarySeq = 0
 const metricPoints: Record<string, TrainingMetricPoint[]> = {}
 
 function delay<T>(value: T, ms = 300): Promise<T> {
@@ -252,7 +258,64 @@ export function createMockAdapter(): MLAdapter {
     async skipAnnotation(taskId) {
       return delay({ id: taskId, dataset_id: 'ds-1', item_index: 0, text: '', status: 'skipped', created_at: '', updated_at: '' })
     },
+
+    // Summarization: queued, then processing, then complete over three polls.
+    async summarize(request) {
+      if (!request.input_text?.trim()) throw refuse(400, 'input_text is required.')
+      summarySeq++
+      const requestId = request.request_id ?? `sum-${summarySeq}`
+      const job: SummarizationJob = { request_id: requestId, status: 'queued', progress: 0, summarized_text: null, error: null }
+      summaries[requestId] = { job, polls: 0, text: extractSummary(request.input_text, request.summary_length ?? 'medium') }
+      return delay({ ...job })
+    },
+    async getSummarizationJob(requestId) {
+      const entry = summaries[requestId]
+      if (!entry) throw refuse(404, 'Summarization request not found.')
+      entry.polls++
+      entry.job =
+        entry.polls >= 3
+          ? { ...entry.job, status: 'complete', progress: 100, summarized_text: entry.text }
+          : { ...entry.job, status: 'processing', progress: entry.polls * 40 }
+      return delay({ ...entry.job })
+    },
+    async getSummarizationModels() {
+      return delay(SUMMARIZATION_MODELS_DEMO)
+    },
   }
+}
+
+function refuse(status: number, message: string): SummarizationError {
+  const error: SummarizationError = new Error(message)
+  error.status = status
+  return error
+}
+
+const SUMMARIZATION_MODELS_DEMO: SummarizationModels = {
+  default: 'lex_rank',
+  abstractive_available: false,
+  extractive: [
+    { id: 'lex_rank', label: 'LexRank', description: 'Picks the sentences most similar to the rest of the text.' },
+    { id: 'lsa', label: 'LSA', description: 'Picks the sentences that best cover the main topics.' },
+    { id: 'text_rank', label: 'TextRank', description: 'Ranks sentences by how they link to each other.' },
+    { id: 'luhn', label: 'Luhn', description: 'Picks the sentences with the most frequent important words.' },
+    { id: 'edmundson', label: 'Edmundson', description: 'Weighs cue words, title words and sentence position.' },
+  ],
+  abstractive: [
+    { id: 'hf:facebook/bart-large-cnn', label: 'BART large CNN', description: 'Writes a new summary in English.' },
+    { id: 'hf:sshleifer/distilbart-cnn-12-6', label: 'DistilBART CNN', description: 'A smaller, faster BART.' },
+    { id: 'hf:yhavinga/ul2-large-dutch', label: 'UL2 large Dutch', description: 'Writes a new summary in Dutch.' },
+  ],
+}
+
+/** An extractive stand-in: the first sentences, as many as the length asks for. */
+function extractSummary(text: string, length: SummaryLength): string {
+  const sentences = text.trim().split(/(?<=[.!?])\s+/)
+  if (typeof length === 'number') {
+    const words = text.trim().split(/\s+/)
+    return words.slice(0, Math.max(1, length)).join(' ')
+  }
+  const count = { short: 1, medium: 2, long: 4 }[length]
+  return sentences.slice(0, count).join(' ')
 }
 
 type DemoPoint = Pick<TrainingMetricPoint, 'metric_name' | 'group' | 'value' | 'epoch' | 'training_step'>

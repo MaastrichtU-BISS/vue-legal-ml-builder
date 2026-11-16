@@ -24,6 +24,10 @@ import type {
   ParameterComparisonPoint,
   PredictionResult,
   RefusalError,
+  SummarizationError,
+  SummarizationJob,
+  SummarizationModels,
+  SummarizationRequest,
   TrainingJob,
   TrainingMetricPoint,
 } from '../types'
@@ -47,7 +51,8 @@ function buildHeaders(getAuthToken?: () => string | null | undefined, extra: Hea
 async function parseOrThrow(res: Response) {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const error: RefusalError & LlmRefusalError = new Error(data.error || `Request failed: ${res.status} ${res.statusText}`)
+    const error: RefusalError & LlmRefusalError & SummarizationError = new Error(data.error || `Request failed: ${res.status} ${res.statusText}`)
+    error.status = res.status
     if (typeof data.field === 'string') error.field = data.field
     if (typeof data.code === 'string') error.code = data.code
     if (typeof data.destination === 'string') error.destination = data.destination
@@ -311,6 +316,17 @@ export function createSelfHostedAdapter(opts: SelfHostedAdapterOptions): MLAdapt
     },
     async getLlmJob(jobId: Id): Promise<LlmJob> {
       return get(`/llm/jobs/${jobId}`)
+    },
+
+    // Summarization. The request is queued; the job is then polled.
+    async summarize(request: SummarizationRequest): Promise<SummarizationJob> {
+      return post('/summarize', request)
+    },
+    async getSummarizationJob(requestId: string): Promise<SummarizationJob> {
+      return get(`/summarize/${encodeURIComponent(requestId)}`)
+    },
+    async getSummarizationModels(): Promise<SummarizationModels> {
+      return get('/summarize/models')
     },
   }
 }
