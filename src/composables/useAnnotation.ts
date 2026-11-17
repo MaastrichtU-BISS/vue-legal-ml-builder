@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import type { Assignment } from 'legal-annotation-kit'
 import type { AnnotationStats, AnnotationTask, Id, MLAdapter } from '../types'
 
 export function useAnnotation(adapter: MLAdapter) {
@@ -70,8 +71,14 @@ export function useAnnotation(adapter: MLAdapter) {
     }
   }
 
-  function save(label: unknown, projectId: Id, datasetId?: Id) {
-    return submit(() => adapter.saveAnnotation(task.value!.id, label), projectId, datasetId, 'Failed to save annotation')
+  /** Save the kit's Assignment for the item on screen, then load the next. */
+  function saveAssignment(assignment: Assignment, projectId: Id, datasetId?: Id) {
+    return submit(
+      () => adapter.saveAnnotationAssignment(task.value!.id, assignment),
+      projectId,
+      datasetId,
+      'Failed to save annotation',
+    )
   }
 
   function skip(projectId: Id, datasetId?: Id) {
@@ -90,5 +97,5 @@ export function useAnnotation(adapter: MLAdapter) {
     return loadNext(projectId, datasetId)
   }
 
-  return { task, stats, isLoading, isSubmitting, error, holdout, loadNext, save, skip, confirmSuggestion, reviewSkipped, setHoldout }
+  return { task, stats, isLoading, isSubmitting, error, holdout, loadNext, saveAssignment, skip, confirmSuggestion, reviewSkipped, setHoldout }
 }

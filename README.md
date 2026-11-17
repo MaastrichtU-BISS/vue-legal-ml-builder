@@ -30,6 +30,10 @@ bundler must be able to resolve it. Add it as a direct dependency of the host
 pre-bundling otherwise may not see the transitive copy). Without it the chart
 components either break the host build (unresolved import) or render empty.
 
+`legal-annotation-kit` is a regular dependency, externalized from the library
+build, so it installs with the builder; its styles are already in
+`vue-legal-ml-builder/style.css`.
+
 ```ts
 import { createApp } from 'vue'
 import { VueLegalMlBuilderPlugin, createSelfHostedAdapter } from 'vue-legal-ml-builder'
@@ -69,7 +73,9 @@ Or per component, for direct (non-plugin) usage; the prop overrides the plugin o
 
 `DatasetManager`, `DatasetEda`, `ModelList`, `ModelCreateWizard`, `ModelDetail`,
 `TrainingMonitor` (composes `TrainingCurves`), `ParameterPerformanceExplorer`,
-`AnnotationWorkspace` (composes `ActiveLearningPanel` when the adapter has the
+`AnnotationWorkspace` (shows each item in legal-annotation-kit's `AnnotatorView`,
+through the required `getAnnotationAssignment` / `saveAnnotationAssignment`
+adapter methods; composes `ActiveLearningPanel` when the adapter has the
 optional active learning methods and the task is single-label classification, and
 `LlmAssistPanel` when the adapter has the optional LLM methods; see
 [LLM suggestions](#llm-suggestions)),
@@ -88,6 +94,19 @@ of training examples (their `training_step`), whatever `groupBy` and `xAxis` say
 `isLearningCurvePoint(point)` tells them apart in a custom slot. Each point's
 `x_kind` says what its `training_step` counts, and titles the x-axis: Training
 step, Iteration (logistic regression's loss by iteration) or Training examples.
+
+## Reviewing labels
+
+Every row with text is an annotation task (legal-ml-core 0.13), and a row the
+uploaded file labels starts labelled. When the adapter implements
+`pageAnnotationTasks` (legal-ml-core `GET /annotation/projects/<id>/tasks` with
+`status`, `label`, `limit`, `offset`, returning `total`), `AnnotationWorkspace`
+offers **Review labels** once a Dataset has any: its labelled items in row order,
+filterable by label, in the kit with Back/Next. Each shows where its label came
+from (the file, a person, an LLM) and, for a changed file label, what the file
+said. Only a real change is saved, as the person's label (`saveAnnotationAssignment`),
+so moving past a file label leaves it the file's. NER items whose file lists
+entity types show them as a hint above the text.
 
 ## LLM suggestions
 
@@ -113,9 +132,14 @@ routes, and `createSelfHostedAdapter` implements them all:
 | `getLlmJob(jobId)` | `GET /llm/jobs/<id>` | Following that job |
 | `estimateActiveLearningSeed(datasetId, { batch_size, holdout_percent })` | `POST /active-learning/datasets/<id>/seed-estimate` | Pricing an LLM-suggested first batch before Start |
 
-A suggestion is never a label: it shows on its item with the LLM's rationale, and
-becomes one only when the user accepts it, picks another label (a correction) or bulk
-accepts after the agreement check passes. "Suggest labels for this batch" asks for the
+A suggestion is never a label. The one waiting for the item on screen is passed to
+legal-annotation-kit as a proposal: listed under **Suggestions** with the LLM's
+rationale and its model and prompt version. It becomes a label only when the user
+accepts it (`confirmLlmSuggestion(id)`), changes it to another label
+(`confirmLlmSuggestion(id, label)`, a correction), or bulk accepts after the agreement
+check passes; rejecting it calls `rejectLlmSuggestion(id)` and leaves the item to label
+by hand. Saving the item with a label of one's own also confirms or corrects it, so the
+agreement counts it. "Suggest labels for this batch" asks for the
 next pending items in queue order (up to 10, legal-ml-core's default
 `LLM_MAX_SYNC_TASKS`), read with `listAnnotationTasks`; without it, the item on screen.
 Each method rejects with an `LlmRefusalError` whose `code` (`budget_exhausted`,

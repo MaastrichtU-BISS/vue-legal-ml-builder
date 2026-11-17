@@ -297,6 +297,66 @@ describe('createSelfHostedAdapter LLM methods', () => {
   })
 })
 
+describe('createSelfHostedAdapter annotation assignments', () => {
+  const assignment = {
+    id: 't 1', annotator: 'u1', order: 1, status: 'done', confidence: 0,
+    annotations: [], document_annotations: [{ id: -1, label: 'Void', confidence: 0, metadata: null }], document_relations: [],
+  }
+  const opened = {
+    success: true,
+    document: { name: 'Contracts, item 1', full_text: 'The contract is void.' },
+    assignment,
+    labels: ['Void', 'Valid'],
+    annotation_level: 'document',
+  }
+
+  it('opens a task as an assignment with its text, labels and level', async () => {
+    const calls = stubFetch(() => reply(200, opened))
+    const result = await createSelfHostedAdapter({ apiUrl: '/api/' }).getAnnotationAssignment('t 1')
+    expect(calls).toEqual([expect.objectContaining({ url: '/api/annotation/tasks/t%201/assignment', method: undefined })])
+    expect(result).toEqual({
+      document: opened.document,
+      assignment,
+      labels: ['Void', 'Valid'],
+      annotationLevel: 'document',
+      labelSource: null,
+      fileLabel: null,
+      hint: null,
+    })
+  })
+
+  it("passes on where the label came from, the file's value and an NER hint", async () => {
+    stubFetch(() => reply(200, { ...opened, label_source: 'file', file_label: 'Void', hint: 'PERSON, ORG' }))
+    const result = await createSelfHostedAdapter({ apiUrl: '/api' }).getAnnotationAssignment('t1')
+    expect(result).toMatchObject({ labelSource: 'file', fileLabel: 'Void', hint: 'PERSON, ORG' })
+  })
+
+  it('reads labelled items a page at a time, filtered by label', async () => {
+    const tasks = [{ id: 't2', item_index: 1, annotation_label: 'Void', status: 'annotated', label_source: 'file' }]
+    const calls = stubFetch(() => reply(200, { success: true, tasks, count: 1, total: 7 }))
+    const result = await createSelfHostedAdapter({ apiUrl: '/api' }).pageAnnotationTasks!('p1', {
+      status: 'annotated', datasetId: 'd1', label: 'Void', includeHoldout: true, limit: 1, offset: 3,
+    })
+    expect(calls[0].url).toBe('/api/annotation/projects/p1/tasks?status=annotated&dataset_id=d1&label=Void&include_holdout=1&limit=1&offset=3')
+    expect(result).toEqual({ tasks, total: 7 })
+  })
+
+  it('saves an assignment with PUT and returns the task', async () => {
+    const task = { id: 't 1', annotation_label: 'Void', status: 'annotated' }
+    const calls = stubFetch(() => reply(200, { success: true, task }))
+    const result = await createSelfHostedAdapter({ apiUrl: '/api' }).saveAnnotationAssignment('t 1', assignment)
+    expect(calls).toEqual([expect.objectContaining({ url: '/api/annotation/tasks/t%201/assignment', method: 'PUT', body: assignment })])
+    expect(result).toEqual(task)
+  })
+
+  it('passes on the reason an assignment is refused', async () => {
+    stubFetch(() => reply(400, { success: false, error: 'Choose only one label for this item.' }))
+    await expect(createSelfHostedAdapter({ apiUrl: '/api' }).saveAnnotationAssignment('t1', assignment)).rejects.toThrow(
+      'Choose only one label for this item.',
+    )
+  })
+})
+
 describe('createSelfHostedAdapter summarization methods', () => {
   const queued = { request_id: 'r1', status: 'queued', progress: 0, summarized_text: null, error: null }
 

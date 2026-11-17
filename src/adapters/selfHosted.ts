@@ -2,6 +2,7 @@ import type {
   ActiveLearningSettings,
   ActiveLearningStartOptions,
   ActiveLearningState,
+  AnnotationAssignment,
   AnnotationTask,
   Dataset,
   DatasetUploadMeta,
@@ -227,6 +228,22 @@ export function createSelfHostedAdapter(opts: SelfHostedAdapterOptions): MLAdapt
       const data = await post(`/annotation/tasks/${taskId}/save`, { annotation_label: label })
       return data.task
     },
+    async getAnnotationAssignment(taskId: Id): Promise<AnnotationAssignment> {
+      const data = await get(`/annotation/tasks/${encodeURIComponent(String(taskId))}/assignment`)
+      return {
+        document: data.document,
+        assignment: data.assignment,
+        labels: data.labels ?? [],
+        annotationLevel: data.annotation_level ?? null,
+        labelSource: data.label_source ?? null,
+        fileLabel: data.file_label ?? null,
+        hint: data.hint ?? null,
+      }
+    },
+    async saveAnnotationAssignment(taskId: Id, assignment): Promise<AnnotationTask> {
+      const data = await put(`/annotation/tasks/${encodeURIComponent(String(taskId))}/assignment`, assignment)
+      return data.task
+    },
     async skipAnnotation(taskId: Id): Promise<AnnotationTask> {
       const data = await post(`/annotation/tasks/${taskId}/skip`)
       return data.task
@@ -237,6 +254,17 @@ export function createSelfHostedAdapter(opts: SelfHostedAdapterOptions): MLAdapt
       if (filter.datasetId) params.set('dataset_id', String(filter.datasetId))
       const data = await get(`/annotation/projects/${projectId}/tasks?${params}`)
       return data.tasks
+    },
+    async pageAnnotationTasks(projectId: Id, filter) {
+      const params = new URLSearchParams()
+      if (filter.status) params.set('status', filter.status)
+      if (filter.datasetId) params.set('dataset_id', String(filter.datasetId))
+      if (filter.label) params.set('label', filter.label)
+      if (filter.includeHoldout) params.set('include_holdout', '1')
+      if (filter.limit !== undefined) params.set('limit', String(filter.limit))
+      if (filter.offset !== undefined) params.set('offset', String(filter.offset))
+      const data = await get(`/annotation/projects/${projectId}/tasks?${params}`)
+      return { tasks: data.tasks, total: data.total ?? data.tasks.length }
     },
 
     // Active learning

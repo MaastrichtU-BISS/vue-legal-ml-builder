@@ -1,3 +1,4 @@
+import type { AnnotationLevel, Assignment } from 'legal-annotation-kit'
 import type { MlBuilderTheme } from './theme'
 import type { CurveChartOptions } from './utils/trainingCharts'
 
@@ -147,11 +148,42 @@ export interface AnnotationTask {
   text: string
   annotation_label?: string | null
   status: 'pending' | 'annotated' | 'skipped'
+  /** `file` when the uploaded file gave the label; `human`; or an LLM source. */
   label_source?: string | null
+  /** The file's own value: its label (kept after a change), or NER entity types. */
+  file_label?: string | null
   score?: number | null
   is_holdout?: boolean
   created_at: string
   updated_at: string
+}
+
+/** A task opened for legal-annotation-kit: legal-ml-core's
+ * `GET /annotation/tasks/<id>/assignment`. */
+export interface AnnotationAssignment {
+  document: { name: string; full_text: string }
+  /** As last saved, or built by the server from the task's label. */
+  assignment: Assignment
+  /** The Dataset's labels; for typed labels, those saved on it so far. */
+  labels: string[]
+  /** `document` for single-label tasks, `word` for NER; null when not annotated. */
+  annotationLevel: AnnotationLevel | null
+  /** Where the label came from (`file`, `human`, an LLM source), or null. */
+  labelSource: string | null
+  /** What the file said for this row, kept after a person changes the label. */
+  fileLabel: string | null
+  /** NER: the entity types the file lists for this row, to mark as spans. */
+  hint: string | null
+}
+
+/** Filter for a page of tasks: the review of existing labels. */
+export interface AnnotationTaskPageFilter {
+  status?: string
+  datasetId?: Id
+  label?: string
+  includeHoldout?: boolean
+  limit?: number
+  offset?: number
 }
 
 export interface AnnotationStats {
@@ -661,9 +693,17 @@ export interface MLAdapter {
   // Annotation
   getNextAnnotationTask(projectId: Id, datasetId?: Id, options?: { holdout?: boolean }): Promise<{ task: AnnotationTask | null; stats: AnnotationStats }>
   saveAnnotation(taskId: Id, label: unknown): Promise<AnnotationTask>
+  /** Open a task as a legal-annotation-kit Assignment, with its labels and level. */
+  getAnnotationAssignment(taskId: Id): Promise<AnnotationAssignment>
+  /** Save a task's Assignment; the server derives the label. Rejects with the
+   * server's reason when a rule is broken. */
+  saveAnnotationAssignment(taskId: Id, assignment: Assignment): Promise<AnnotationTask>
   skipAnnotation(taskId: Id): Promise<AnnotationTask>
   /** Optional: lets a user return to skipped items. */
   listAnnotationTasks?(projectId: Id, filter: { status?: string; datasetId?: Id }): Promise<AnnotationTask[]>
+  /** Tasks in row order a page at a time, with the total matching: the review
+   * of existing labels. Without it, there is no Review labels mode. */
+  pageAnnotationTasks?(projectId: Id, filter: AnnotationTaskPageFilter): Promise<{ tasks: AnnotationTask[]; total: number }>
 
   // Active learning. Optional: without these the workspace is plain annotation.
   getActiveLearningSettings?(): Promise<ActiveLearningSettings>

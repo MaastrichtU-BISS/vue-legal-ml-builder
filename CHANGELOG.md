@@ -42,6 +42,75 @@ tagged `vX.Y.Z`.
 - The `availableModels` prop: models come from the server.
 - PDF and Word uploads, which were read as text: uploads are plain `.txt`.
 
+## [0.10.1] - 2026-11-13
+
+### Fixed
+
+- **Review labels could save one item's labels onto another.** Moving to the
+  next item showed it with the previous item's labels until a real server
+  answered, and Back or Next then saved them onto it. The item and its labels
+  now arrive together. Found in BAIGLE #149 QA.
+- Two labels in a set no longer share a colour when their names hash alike
+  (Civil and Criminal did): `kitLabelset` gives a later one the next free colour.
+
+## [0.10.0] - 2026-11-13
+
+### Added
+
+- **Review labels** in `AnnotationWorkspace` (BAIGLE #148): the Dataset's labelled
+  items in row order, filtered by label, in the kit with Back/Next. It says where
+  each label came from (`labelSourceText`) and what the file said for a changed
+  file label. Only a real change is saved (`assignmentChanged`), as a person's
+  label. Needs the new optional adapter method `pageAnnotationTasks(projectId,
+  { status, datasetId, label, includeHoldout, limit, offset })` → `{ tasks, total }`,
+  which `createSelfHostedAdapter` implements against legal-ml-core 0.13.
+- `AnnotationAssignment` carries `labelSource`, `fileLabel` and `hint`; an NER item
+  shows the file's entity types above the text. `AnnotationTask` has `file_label`.
+
+### Changed
+
+- A Dataset whose rows all have labels ends on "Every item has a label" with
+  Review labels, not on a dead end; the end state no longer says "You annotated",
+  as file labels count. The kit's theme mapping (`.vmlb-kit`) moves to the shared
+  stylesheet.
+
+## [0.9.0] - 2026-11-13
+
+### Changed (breaking)
+
+- `AnnotationWorkspace` shows each item in
+  [legal-annotation-kit](https://github.com/shashankmc/vue-legal-annotation-kit)'s
+  `AnnotatorView` (BAIGLE ADR 0007). Two adapter methods are now **required**:
+  `getAnnotationAssignment(taskId)` → `AnnotationAssignment` and
+  `saveAnnotationAssignment(taskId, assignment)` → `AnnotationTask`
+  (legal-ml-core `GET`/`PUT /api/annotation/tasks/<id>/assignment`). Adapters
+  without them, such as Legal Blocks', must add them before upgrading.
+- The kit's Save replaces **Save & Next** and the N key; Skip moves into the kit's
+  header and keeps the S key. Single-label items take one tag at a time, NER spans
+  may not overlap, and relations, confidence and metadata are hidden.
+- A Dataset that names no labels gets a **New label** field above the labels;
+  a new label is saved with the first item that uses it.
+- `legal-annotation-kit` is a dependency (pinned by commit until it releases);
+  its stylesheet is bundled into `vue-legal-ml-builder/style.css`, and its colours
+  follow the builder theme, light and dark.
+- The LLM suggestion for the item on screen is a legal-annotation-kit proposal
+  (BAIGLE #140): Accept confirms it, **Change to…** corrects it, Reject rejects it,
+  and the agreement check refreshes. The builder's own suggestion card is gone.
+- Removed from the exports: `canSaveAnnotation`, `toggleLabel`, `nerSegments`,
+  `addEntity` and the `EntitySpan` type, and `save(label)` from `useAnnotation`;
+  the kit does that work now.
+
+### Added
+
+- `createSelfHostedAdapter` implements both methods; `AnnotationAssignment`,
+  `labelColour(name)` (a label's stable colour) and `kitLabelset(names)` are exported.
+
+### Unchanged
+
+- The queue, progress, holdout, end states, `ActiveLearningPanel` and
+  `LlmAssistPanel` (key, acknowledgement, prompt, agreement, bulk accept and jobs).
+  A label saved over a waiting suggestion still confirms or corrects it.
+
 ## [0.8.0] - 2026-11-13
 
 ### Added
@@ -370,7 +439,11 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.0...v0.10.1
+[0.10.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.5.5...v0.6.0
 [0.5.5]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.5.4...v0.5.5
