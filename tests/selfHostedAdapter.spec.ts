@@ -356,3 +356,84 @@ describe('createSelfHostedAdapter annotation assignments', () => {
     )
   })
 })
+
+describe('createSelfHostedAdapter summarization methods', () => {
+  const queued = { request_id: 'r1', status: 'queued', progress: 0, summarized_text: null, error: null }
+
+  it('queues a summary with the request as given, and the bearer token', async () => {
+    const calls = stubFetch(() => reply(202, queued))
+    const adapter = createSelfHostedAdapter({ apiUrl: '/api/', getAuthToken: () => 't' })
+    const request = { input_text: 'The tenant shall pay rent.', summary_length: 120, priority: { relevance: 0.8, readability: 0.3 }, model: 'lsa' }
+
+    await expect(adapter.summarize!(request)).resolves.toEqual(queued)
+    expect(calls).toEqual([{ url: '/api/summarize', token: 'Bearer t', method: 'POST', body: request }])
+  })
+
+  it('leaves out what the user did not choose, so the server picks its defaults', async () => {
+    const calls = stubFetch(() => reply(202, queued))
+    const adapter = createSelfHostedAdapter({ apiUrl: '/api' })
+
+    await adapter.summarize!({ input_text: 'Text.', model: undefined })
+
+    expect(calls[0].body).toEqual({ input_text: 'Text.' })
+  })
+
+  it('reads a job by its request id', async () => {
+    const complete = { request_id: 'r 1', status: 'complete', progress: 100, summarized_text: 'Rent is due.', error: null }
+    const calls = stubFetch(() => reply(200, complete))
+    const adapter = createSelfHostedAdapter({ apiUrl: '/api', getAuthToken: () => 't' })
+
+    await expect(adapter.getSummarizationJob!('r 1')).resolves.toEqual(complete)
+    expect(calls).toEqual([{ url: '/api/summarize/r%201', token: 'Bearer t', method: undefined, body: undefined }])
+  })
+
+  it('reads the models on offer', async () => {
+    const models = {
+      default: 'lex_rank',
+      abstractive_available: false,
+      extractive: [{ id: 'lex_rank', label: 'LexRank', description: 'Graph-based.' }],
+      abstractive: [{ id: 'hf:facebook/bart-large-cnn', label: 'BART', description: 'Abstractive.' }],
+    }
+    const calls = stubFetch(() => reply(200, models))
+    const adapter = createSelfHostedAdapter({ apiUrl: '/api', getAuthToken: () => 't' })
+
+    await expect(adapter.getSummarizationModels!()).resolves.toEqual(models)
+    expect(calls).toEqual([expect.objectContaining({ url: '/api/summarize/models', token: 'Bearer t', method: undefined })])
+  })
+
+  it('rejects invalid input with the server message and status', async () => {
+    stubFetch(() => reply(400, { error: 'input_text is required.' }))
+    const adapter = createSelfHostedAdapter({ apiUrl: '/api' })
+
+    const refused = await adapter.summarize!({ input_text: '' }).catch((err) => err)
+
+    expect(refused).toBeInstanceOf(Error)
+    expect(refused.message).toBe('input_text is required.')
+    expect(refused.status).toBe(400)
+  })
+
+  it('reports an unknown or expired request as a 404', async () => {
+    stubFetch(() => reply(404, { error: 'Summarization request not found.' }))
+    const adapter = createSelfHostedAdapter({ apiUrl: '/api' })
+
+    const refused = await adapter.getSummarizationJob!('gone').catch((err) => err)
+
+    expect(refused.message).toBe('Summarization request not found.')
+    expect(refused.status).toBe(404)
+  })
+
+  it('retries a poll once with the refreshed token when the token has expired', async () => {
+    let token = 'stale'
+    const calls = stubFetch((_url, init) =>
+      (init.headers as Record<string, string>).Authorization === 'Bearer fresh' ? reply(200, queued) : reply(401, { error: 'Access token has expired.' }),
+    )
+    const adapter = createSelfHostedAdapter({
+      apiUrl: '/api',
+      getAuthToken: () => token,
+      refreshAuthToken: async () => (token = 'fresh'),
+    })
+
+    await expect(adapter.getSummarizationJob!('r1')).resolves.toEqual(queued)
+    expect(calls.map((c) => c.token)).toEqual(['Bearer stale', 'Bearer fresh'])
+  })
+})

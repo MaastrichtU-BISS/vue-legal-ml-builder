@@ -18,6 +18,15 @@ import ConfusionMatrix from './components/shared/ConfusionMatrix.vue'
 import ModelLens from './components/shared/ModelLens.vue'
 import PlotlyChart from './components/shared/PlotlyChart.vue'
 import ThemeSwitcher from './components/shared/ThemeSwitcher.vue'
+import SegmentationEditor from './components/summarization/SegmentationEditor.vue'
+import SummarizationWidget from './components/summarization/SummarizationWidget.vue'
+import SummaryControls from './components/summarization/SummaryControls.vue'
+import SummaryDisplay from './components/summarization/SummaryDisplay.vue'
+import SummaryExportPanel from './components/summarization/SummaryExportPanel.vue'
+import SummaryInputPanel from './components/summarization/SummaryInputPanel.vue'
+import SummaryProgress from './components/summarization/SummaryProgress.vue'
+import SummaryResultsPanel from './components/summarization/SummaryResultsPanel.vue'
+import SummaryVersionHistory from './components/summarization/SummaryVersionHistory.vue'
 import TrainingCurves from './components/TrainingCurves.vue'
 import TrainingMonitor from './components/TrainingMonitor.vue'
 import { MlBuilderThemeProvider, applyTheme, clearTheme, createTheme, ensurePresetStyles } from './theme'
@@ -33,9 +42,9 @@ function resolveAdapter(opts: MLBuilderPluginOptions): MLAdapter {
   return createSelfHostedAdapter(opts.adapter)
 }
 
-/** Vue plugin — registers all components globally and provides the adapter
- * (mirrors vue-legal-summarizer's VueLegalSummarizerPlugin). Components also
- * accept an explicit `adapter` prop for non-plugin, directly-imported usage. */
+/** Vue plugin — registers all components globally and provides the adapter.
+ * Components also accept an explicit `adapter` prop for non-plugin,
+ * directly-imported usage. */
 export const VueLegalMlBuilderPlugin = {
   install(app: App, opts: MLBuilderPluginOptions) {
     const adapter = resolveAdapter(opts)
@@ -64,6 +73,15 @@ export const VueLegalMlBuilderPlugin = {
     app.component('ModelLens', ModelLens)
     app.component('PlotlyChart', PlotlyChart)
     app.component('ThemeSwitcher', ThemeSwitcher)
+    app.component('SegmentationEditor', SegmentationEditor)
+    app.component('SummarizationWidget', SummarizationWidget)
+    app.component('SummaryControls', SummaryControls)
+    app.component('SummaryDisplay', SummaryDisplay)
+    app.component('SummaryExportPanel', SummaryExportPanel)
+    app.component('SummaryInputPanel', SummaryInputPanel)
+    app.component('SummaryProgress', SummaryProgress)
+    app.component('SummaryResultsPanel', SummaryResultsPanel)
+    app.component('SummaryVersionHistory', SummaryVersionHistory)
   },
 }
 
@@ -90,6 +108,15 @@ export {
   ModelQuestionTree,
   ParameterPerformanceExplorer,
   PlotlyChart,
+  SegmentationEditor,
+  SummarizationWidget,
+  SummaryControls,
+  SummaryDisplay,
+  SummaryExportPanel,
+  SummaryInputPanel,
+  SummaryProgress,
+  SummaryResultsPanel,
+  SummaryVersionHistory,
   ThemeSwitcher,
   TrainingCurves,
   TrainingMonitor,
@@ -113,6 +140,8 @@ export { useEda } from './composables/useEda'
 export { useLlmAssist } from './composables/useLlmAssist'
 export { useModels } from './composables/useModels'
 export { useParameterComparison } from './composables/useParameterComparison'
+export { useSummarization } from './composables/useSummarization'
+export type { SummarizeOptions, SummaryInput } from './composables/useSummarization'
 export { useTraining } from './composables/useTraining'
 export { useTrainingCurves } from './composables/useTrainingCurves'
 export { TRAINING_METRIC_GROUPS, curveCharts, isLearningCurvePoint, metricGroupOf, metricUnitOf, stageEvents, xKindOf } from './utils/trainingCharts'
@@ -127,6 +156,9 @@ export type { AnnotationControls, AnnotationScreenState } from './annotation/ann
 export { kitLabelset, labelColour } from './annotation/labelColours'
 export { assignmentChanged, labelSourceText } from './annotation/review'
 export { STRATEGY_COPY, holdoutClassText, retrainPrompt, trainingWarning, verificationText } from './annotation/activeLearning'
+export { buildExport, downloadExport } from './summarization/exportSummaries'
+export { SUMMARY_STATUS_LABEL, defaultSummaryModel, formatSummaryDate, isFinalRefusal, sourceBadgeClass, summaryFailureMessage, summaryModelChoices } from './summarization/summaryDisplay'
+export type { SummaryModelChoice } from './summarization/summaryDisplay'
 export type { DatasetFacts, DecisionTree, GuideAdvice, GuideContext, GuideNode, GuideOption } from './lens/modelGuide'
 
 export type {
@@ -140,8 +172,11 @@ export type {
   AnnotationTask,
   Dataset,
   DatasetUploadMeta,
+  DocumentSegment,
   EdaResult,
+  ExportFormat,
   ExplanationResult,
+  GenerationSource,
   Id,
   LlmAcknowledgement,
   LlmAgreement,
@@ -171,8 +206,22 @@ export type {
   ParameterComparisonPoint,
   ParameterFieldSchema,
   ParameterFieldType,
+  PersistedSummary,
   PredictionResult,
   RefusalError,
+  SegmentPatch,
+  SummarizationError,
+  SummarizationJob,
+  SummarizationJobStatus,
+  SummarizationModel,
+  SummarizationModels,
+  SummarizationRequest,
+  SummaryDocument,
+  SummaryLength,
+  SummaryPriority,
+  SummaryResult,
+  SummaryStoreAdapter,
+  SummaryStoreId,
   TrainingCurvesOptions,
   TrainingJob,
   TrainingJobStatus,

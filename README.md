@@ -5,14 +5,13 @@
 
 Vue 3 component library for the BAIGLE legal-ML workbench — dataset
 management, model configuration/training/prediction, visualization,
-annotation, and experiment monitoring. Extracted from the
+annotation, experiment monitoring, and summarization. Extracted from the
 `reducing_digital_divide` monorepo's SvelteKit frontend, and embedded back
 into it via a manual Vue-in-Svelte mount bridge (`VueMount.svelte`).
 
-Follows the same architecture as the sibling package
-[`vue-legal-summarizer`](../vue-legal-summarizer): components never call an
-API directly — a single pluggable `MLAdapter` object, provided via the Vue
-plugin or passed as an explicit prop, is the entire backend contract.
+Components never call an API directly — a single pluggable `MLAdapter`
+object, provided via the Vue plugin or passed as an explicit prop, is the
+entire backend contract.
 
 ## Install
 
@@ -80,8 +79,9 @@ adapter methods; composes `ActiveLearningPanel` when the adapter has the
 optional active learning methods and the task is single-label classification, and
 `LlmAssistPanel` when the adapter has the optional LLM methods; see
 [LLM suggestions](#llm-suggestions)),
-plus shared primitives `ConfusionMatrix`/`PlotlyChart`/`ModelLens`/
-`MlBuilderThemeProvider`.
+`SummarizationWidget` and the summary store components (see
+[Summarization](#summarization)), plus shared primitives
+`ConfusionMatrix`/`PlotlyChart`/`ModelLens`/`MlBuilderThemeProvider`.
 
 `TrainingCurves` and `ParameterPerformanceExplorer` are the experiment-monitoring
 pieces (mlop.ai-inspired): live per-training-job metric curves and cross-run
@@ -149,6 +149,55 @@ to tell the user what to do next. A custom adapter should set them the same way.
 The own key is read from the form when it is sent and cleared from it straight after;
 it is not kept in component state or storage. The panel polls a standalone job every
 `pollInterval` milliseconds (plugin option, default 3000).
+
+## Summarization
+
+`SummarizationWidget` summarises pasted text, uploaded `.txt` files or documents
+the host passes in `documents`, through legal-ml-core's `/api/summarize` routes.
+It shows when the adapter implements the optional summarization methods; without
+them it says summarisation is not available. `createSelfHostedAdapter` implements
+them with the same base URL, bearer token and refresh as its other routes:
+
+| Method | Route | Used for |
+| --- | --- | --- |
+| `summarize({ input_text, summary_length?, priority?, model?, request_id? })` | `POST /summarize` | Queues a summary; the job comes back `queued` |
+| `getSummarizationJob(requestId)` | `GET /summarize/<request_id>` | Polled until the job is `complete` or `error` |
+| `getSummarizationModels()` | `GET /summarize/models` | Fills the model picker |
+
+```vue
+<SummarizationWidget
+  title="Summarise"
+  :documents="[{ id: 'd1', name: 'Lease', content: leaseText }]"
+  :allow-save="true"
+  @save="(result) => store(result)"
+/>
+```
+
+`summary_length` is `'short'`, `'medium'`, `'long'` or a target number of
+words; `priority` weighs `relevance` and `readability` from 0 to 1. The model
+picker lists the server's extractive models (`lex_rank`, `lsa`, `text_rank`,
+`luhn`, `edmundson`) and its `hf:` abstractive ones, which are disabled while the
+server reports `abstractive_available: false`. The server's `default` is
+preselected; if the models cannot be loaded the picker is hidden and the server
+chooses.
+
+Progress is polled only; there is no push stream. The widget polls every
+`pollInterval` milliseconds (prop, else the plugin option, else 1500). A 404,
+which legal-ml-core sends for an unknown request, one older than its one-hour
+lifetime or someone else's, ends the run with a message to start again, as does
+any other 4xx. A network error or 5xx is retried, up to five failed polls in a
+row. Several documents are summarised one after another, with progress across
+the batch. `useSummarization(adapter, pollIntervalMs)` gives the same behaviour
+without the widget.
+
+The stored-summary components read a `SummaryStoreAdapter` the host supplies
+through a `store` prop: there is no legal-ml-core route for them.
+`SummaryResultsPanel` lists a task's summaries and rejects one for regeneration,
+`SummaryVersionHistory` shows a document's versions, `SegmentationEditor` edits a
+document's segments when the store implements the segment methods, and
+`SummaryExportPanel` downloads the summaries as JSON or CSV (with the store's
+`exportSummaries`, else `listSummaries`). `buildExport` and `downloadExport` are
+exported for hosts that export elsewhere.
 
 ## Configuring the training curves
 

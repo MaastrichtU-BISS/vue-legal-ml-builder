@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { inject, ref } from 'vue'
-import type { MLAdapter } from '../types'
+import type { MLAdapter, SummaryDocument } from '../types'
 import type { ThemeId } from '../theme'
 
 const injectedAdapter = inject<MLAdapter | null>('vmlb:adapter', null)
@@ -12,6 +12,7 @@ type View =
   | { name: 'train'; modelId: string }
   | { name: 'compare' }
   | { name: 'detail'; modelId: string }
+  | { name: 'summarize' }
 
 const view = ref<View>({ name: 'datasets' })
 const theme = ref<ThemeId>('ink')
@@ -20,9 +21,25 @@ const NAV = [
   { name: 'datasets' as const, label: 'Datasets' },
   { name: 'models' as const, label: 'Models' },
   { name: 'compare' as const, label: 'Compare' },
+  { name: 'summarize' as const, label: 'Summarise' },
 ]
 
-function go(name: 'datasets' | 'models' | 'compare') {
+const SAMPLE_DOCUMENTS: SummaryDocument[] = [
+  {
+    id: 'gdpr-17',
+    name: 'GDPR Article 17: Right to erasure',
+    content:
+      'The data subject shall have the right to obtain from the controller the erasure of personal data concerning him or her without undue delay. The controller shall have the obligation to erase personal data without undue delay where the personal data are no longer necessary in relation to the purposes for which they were collected. The same applies where the data subject withdraws consent and there is no other legal ground for the processing.',
+  },
+  {
+    id: 'bw-6-162',
+    name: 'Dutch Civil Code, Article 6:162',
+    content:
+      'A person who commits a tortious act against another person that can be attributed to him, must repair the damage that this other person has suffered as a result thereof. As a tortious act is regarded a violation of someone else\'s right. An act or omission in violation of a duty imposed by law, or of what according to unwritten law has to be regarded as proper social conduct, is also regarded as such.',
+  },
+]
+
+function go(name: 'datasets' | 'models' | 'compare' | 'summarize') {
   view.value = { name }
 }
 </script>
@@ -86,6 +103,13 @@ function go(name: 'datasets' | 'models' | 'compare') {
         :adapter="injectedAdapter ?? undefined"
         :model-id="view.modelId"
         @train="view = { name: 'train', modelId: (view as any).modelId }"
+      />
+      <SummarizationWidget
+        v-else-if="view.name === 'summarize'"
+        title="Summarise"
+        subtitle="Paste a judgment or statute, or pick a document. Extractive models pick sentences from the text."
+        :documents="SAMPLE_DOCUMENTS"
+        :poll-interval="800"
       />
     </main>
 

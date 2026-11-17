@@ -6,8 +6,7 @@ export type StopOutcome = 'stopped' | 'finished' | 'error'
 
 const TERMINAL: string[] = ['completed', 'failed', 'cancelled']
 
-/** Starts a training job and polls its status until it settles. Mirrors the
- * pull-based polling pattern in vue-legal-summarizer's usePolling composable. */
+/** Starts a training job and polls its status until it settles. */
 export function useTraining(adapter: MLAdapter, pollIntervalMs = 5000) {
   const job = ref<TrainingJob | null>(null)
   const model = ref<MlModel | null>(null)
