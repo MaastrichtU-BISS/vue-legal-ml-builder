@@ -501,7 +501,7 @@
   }
 }
 
-/* legal-annotation-kit reads its colours and radii from --lak-* variables; taken from the builder's theme so light and dark follow it. */
+/* legal-annotation-kit reads its colours, radii and type from --lak-* variables; taken from the builder's theme so light and dark, and a host's type scale, follow it. */
 .vmlb-kit {
   --lak-accent: var(--vmlb-accent);
   --lak-on-accent: var(--vmlb-on-accent);
@@ -526,6 +526,13 @@
   --lak-radius: var(--vmlb-radius-md);
   --lak-radius-sm: var(--vmlb-radius-sm);
   --lak-radius-lg: var(--vmlb-radius-lg);
+  --lak-font-size-2xs: var(--vmlb-font-size-2xs);
+  --lak-font-size-xs: var(--vmlb-font-size-xs);
+  --lak-font-size-sm: var(--vmlb-font-size-sm);
+  --lak-font-size-md: var(--vmlb-font-size-md);
+  --lak-font-size-base: var(--vmlb-font-size-base);
+  --lak-label-case: var(--vmlb-label-case);
+  --lak-label-tracking: var(--vmlb-label-tracking);
   height: min(70vh, 40rem);
   overflow: hidden;
   border: 1px solid var(--vmlb-border);

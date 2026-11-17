@@ -41,6 +41,19 @@ describe('type scale', () => {
     expect(offenders).toEqual([])
   })
 
+  // legal-annotation-kit renders inside .vmlb-kit; its text sizes and label case
+  // must follow the builder's scale too (BAIGLE #154).
+  it.each(['2xs', 'xs', 'sm', 'md', 'base'])('maps the kit\'s --lak-font-size-%s onto the builder scale', (size) => {
+    const css = readFileSync(join(__dirname, '../src/styles/components.css'), 'utf8')
+    expect(css).toContain(`--lak-font-size-${size}: var(--vmlb-font-size-${size});`)
+  })
+
+  it('maps the kit\'s label case and tracking onto the builder tokens', () => {
+    const css = readFileSync(join(__dirname, '../src/styles/components.css'), 'utf8')
+    expect(css).toContain('--lak-label-case: var(--vmlb-label-case);')
+    expect(css).toContain('--lak-label-tracking: var(--vmlb-label-tracking);')
+  })
+
   it('takes every uppercase label from the label-case token', () => {
     const offenders = sourceFiles(join(__dirname, '../src')).flatMap((file) =>
       readFileSync(file, 'utf8')

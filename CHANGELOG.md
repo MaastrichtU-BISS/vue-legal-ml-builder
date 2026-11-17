@@ -69,6 +69,12 @@ tagged `vX.Y.Z`.
   and the 13.6px model-fit reason becomes 13px.
 - The summarization components use the scale too; the 17px results-tile title
   becomes 18px.
+- The annotation kit follows the type scale (BAIGLE #154): `.vmlb-kit` maps
+  the kit's `--lak-font-size-2xs` … `-base`, `--lak-label-case` and
+  `--lak-label-tracking` onto the builder's tokens, so the kit's panels,
+  suggestion cards and badges use the same sizes as the rest of the builder.
+  The kit pin moves to `ede6317`, which reads them
+  (MaastrichtU-BISS/vue-legal-annotation-kit#13).
 - Errors from `createSelfHostedAdapter` carry the response's HTTP `status`.
 
 ### Removed, compared with the standalone summarizer
