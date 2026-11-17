@@ -97,7 +97,7 @@ function submit() {
 <style scoped>
 .vmlb-summarize { max-width: 62rem; margin: 0 auto; }
 .vmlb-summarize-head { margin-bottom: 1.5rem; }
-.vmlb-summarize-head h2 { margin: 0 0 0.25rem; font-size: 1.75rem; }
+.vmlb-summarize-head h2 { margin: 0 0 0.25rem; font-size: var(--vmlb-font-size-3xl); }
 .vmlb-summarize-head .vmlb-muted { margin: 0; max-width: 60ch; }
 .vmlb-summarize-error { margin: var(--vmlb-space-md) 0 0; }
 </style>

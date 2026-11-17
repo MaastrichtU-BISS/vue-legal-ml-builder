@@ -67,6 +67,8 @@ tagged `vX.Y.Z`.
   questions) become 16px, the 17px confusion-matrix and tile titles and the
   19px wizard step titles become 18px, the 22px training stat becomes 20px,
   and the 13.6px model-fit reason becomes 13px.
+- The summarization components use the scale too; the 17px results-tile title
+  becomes 18px.
 - Errors from `createSelfHostedAdapter` carry the response's HTTP `status`.
 
 ### Removed, compared with the standalone summarizer

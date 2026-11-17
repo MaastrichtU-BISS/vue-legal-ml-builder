@@ -148,7 +148,7 @@ defineExpose({ reload: load })
 .vmlb-sum-stored { display: flex; flex-direction: column; gap: var(--vmlb-space-md); }
 .vmlb-sum-stored .vmlb-card + .vmlb-card { margin-top: 0; }
 .vmlb-sum-loading { display: flex; flex-direction: column; gap: var(--vmlb-space-md); }
-.vmlb-tile-head h3 { margin: 0 0 0.375rem; font-family: var(--vmlb-font-display); font-size: 1.0625rem; font-weight: 600; }
+.vmlb-tile-head h3 { margin: 0 0 0.375rem; font-family: var(--vmlb-font-display); font-size: var(--vmlb-font-size-lg); font-weight: 600; }
 .vmlb-sum-tags { display: flex; flex-wrap: wrap; gap: 0.375rem; }
 .vmlb-sum-text { margin: 0; white-space: pre-wrap; line-height: 1.6; max-width: 72ch; }
 .vmlb-sum-foot { align-items: center; margin-top: var(--vmlb-space-sm); }

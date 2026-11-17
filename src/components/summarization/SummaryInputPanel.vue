@@ -143,7 +143,7 @@ function removeUpload(name: string) {
 .vmlb-sum-tab {
   margin-bottom: -1px; padding: 0.5rem 0.85rem;
   border: none; border-bottom: 2px solid transparent; background: none;
-  color: var(--vmlb-text-muted); font-family: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;
+  color: var(--vmlb-text-muted); font-family: inherit; font-size: var(--vmlb-font-size-md); font-weight: 600; cursor: pointer;
   transition: color var(--vmlb-duration) var(--vmlb-ease), border-color var(--vmlb-duration) var(--vmlb-ease);
 }
 .vmlb-sum-tab:hover { color: var(--vmlb-text); }
@@ -156,7 +156,7 @@ function removeUpload(name: string) {
 .vmlb-sum-list li {
   display: flex; align-items: center; justify-content: space-between; gap: var(--vmlb-space-sm);
   padding: 0.5rem 0.75rem; border: 1px solid var(--vmlb-border); border-radius: var(--vmlb-radius-md);
-  background: var(--vmlb-surface); font-size: 0.875rem;
+  background: var(--vmlb-surface); font-size: var(--vmlb-font-size-md);
 }
 .vmlb-sum-list li.selected { border-color: var(--vmlb-accent); background: var(--vmlb-accent-soft); }
 .vmlb-sum-list label { display: flex; align-items: center; gap: 0.5rem; flex: 1; cursor: pointer; }
