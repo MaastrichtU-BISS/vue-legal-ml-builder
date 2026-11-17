@@ -168,7 +168,7 @@ describe('createSelfHostedAdapter LLM methods', () => {
   }
 
   it('reads the status, for a Dataset when asked', async () => {
-    const status = { mode: 'shared', destination: 'openrouter.ai', model: 'gpt-x', shared_key_allowed: true, key: null, remaining_tokens: 1200, acknowledged: false }
+    const status = { mode: 'shared', destination: 'openrouter.ai', model: 'gpt-x', shared_key_allowed: true, shared_key_configured: true, key: null, remaining_tokens: 1200, acknowledged: false }
     const { calls, result } = await call(status, (a) => a.getLlmStatus!('ds 1'))
     expect(calls).toEqual([expect.objectContaining({ url: '/api/llm/status?dataset_id=ds%201', method: undefined })])
     expect(result).toEqual(status)

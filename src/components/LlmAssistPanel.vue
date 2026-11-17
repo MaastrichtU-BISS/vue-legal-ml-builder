@@ -123,6 +123,7 @@ watch(suggestions, (value) => emit('suggestions', value))
         Suggestions use your own key. Text is sent to <strong>{{ status.destination }}</strong>.
       </p>
       <p v-else-if="status.key" class="vmlb-llm-status">Your own key can't be used right now. Delete it and add it again with a public https base URL.</p>
+      <p v-else-if="status.shared_key_configured === false" class="vmlb-llm-status">This platform has no shared LLM key. Add your own API key to use LLM suggestions.</p>
       <p v-else class="vmlb-llm-status">LLM suggestions are not available for your account. Add your own API key to use them.</p>
 
       <div v-if="hasAccess && !ready" class="vmlb-llm-ack">

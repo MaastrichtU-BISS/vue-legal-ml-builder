@@ -294,6 +294,8 @@ export interface LlmStatus {
   destination: string | null
   model: string | null
   shared_key_allowed: boolean
+  /** Whether this platform has a shared key at all, for any account. Older servers omit it. */
+  shared_key_configured?: boolean
   /** The user's own key, without the key itself, which is never returned. */
   key: { base_url: string; model: string } | null
   /** Tokens left this month on the shared key; null for an own key or no limit. */
