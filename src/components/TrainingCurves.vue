@@ -105,10 +105,10 @@ onUnmounted(stop)
 
 <style scoped>
 .vmlb-curves { display: flex; flex-direction: column; gap: 0.5rem; }
-.vmlb-curves-chart h4 { margin: 0.5rem 0 0; font-size: 0.875rem; color: var(--vmlb-text); }
+.vmlb-curves-chart h4 { margin: 0.5rem 0 0; font-size: var(--vmlb-font-size-md); color: var(--vmlb-text); }
 .vmlb-stage-timeline {
   display: flex; flex-wrap: wrap; gap: 0.25rem 1rem;
-  margin: 0; padding: 0; list-style: none; font-size: 0.8125rem; color: var(--vmlb-text-muted);
+  margin: 0; padding: 0; list-style: none; font-size: var(--vmlb-font-size-sm); color: var(--vmlb-text-muted);
 }
 .vmlb-stage-timeline li { display: flex; align-items: center; gap: 0.375rem; }
 .vmlb-stage-dot {
@@ -117,6 +117,6 @@ onUnmounted(stop)
 .vmlb-waiting {
   display: flex; align-items: center; gap: 0.5rem;
   padding: 1rem; border-radius: var(--vmlb-radius-md);
-  background: var(--vmlb-surface-sunken); color: var(--vmlb-text-muted); font-size: 0.875rem;
+  background: var(--vmlb-surface-sunken); color: var(--vmlb-text-muted); font-size: var(--vmlb-font-size-md);
 }
 </style>

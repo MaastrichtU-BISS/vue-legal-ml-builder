@@ -87,7 +87,7 @@ onMounted(() => load(props.datasetId))
 
 <style scoped>
 .vmlb-eda { max-width: 62rem; margin: 0 auto; }
-.vmlb-eda-title { margin: 0 0 1.5rem; font-size: 1.75rem; }
+.vmlb-eda-title { margin: 0 0 1.5rem; font-size: var(--vmlb-font-size-3xl); }
 .vmlb-eda-loading { display: flex; flex-direction: column; gap: 1rem; }
 .vmlb-eda-stats { display: grid; grid-template-columns: repeat(2, 1fr) 1.4fr; gap: 1rem; margin-bottom: 2rem; }
 @media (max-width: 40rem) { .vmlb-eda-stats { grid-template-columns: 1fr; } }
@@ -99,13 +99,13 @@ onMounted(() => load(props.datasetId))
   border-left: 3px solid var(--vmlb-border-strong);
 }
 .vmlb-stat-wide { border-left-color: var(--vmlb-accent); }
-.vmlb-stat strong { font-size: 1.75rem; font-weight: 600; letter-spacing: -0.01em; }
-.vmlb-stat-unit { font-size: 1rem; color: var(--vmlb-text-subtle); font-weight: 500; }
+.vmlb-stat strong { font-size: var(--vmlb-font-size-3xl); font-weight: 600; letter-spacing: -0.01em; }
+.vmlb-stat-unit { font-size: var(--vmlb-font-size-base); color: var(--vmlb-text-subtle); font-weight: 500; }
 .vmlb-section { margin-bottom: 2rem; }
-.vmlb-section-title { margin: 0 0 0.75rem; font-family: var(--vmlb-font-display); font-size: 1.125rem; font-weight: 600; }
+.vmlb-section-title { margin: 0 0 0.75rem; font-family: var(--vmlb-font-display); font-size: var(--vmlb-font-size-lg); font-weight: 600; }
 .vmlb-issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
 .vmlb-issue {
-  font-size: 0.875rem; padding: 0.5rem 0.75rem;
+  font-size: var(--vmlb-font-size-md); padding: 0.5rem 0.75rem;
   border-left: 3px solid var(--vmlb-border-strong);
   background: var(--vmlb-surface-sunken);
   border-radius: 0 var(--vmlb-radius-sm) var(--vmlb-radius-sm) 0;
@@ -122,7 +122,7 @@ onMounted(() => load(props.datasetId))
 .vmlb-priority-high { border-left-color: var(--vmlb-error); }
 .vmlb-priority-medium { border-left-color: var(--vmlb-warning); }
 .vmlb-priority-low { border-left-color: var(--vmlb-success); }
-.vmlb-insight-title { margin: 0; font-weight: 600; font-size: 0.875rem; }
+.vmlb-insight-title { margin: 0; font-weight: 600; font-size: var(--vmlb-font-size-md); }
 .vmlb-insight .vmlb-muted { margin: 0.15rem 0 0; line-height: 1.5; }
 .vmlb-cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 0.75rem; }
 .vmlb-col-card {
@@ -130,7 +130,7 @@ onMounted(() => load(props.datasetId))
   border: 1px solid var(--vmlb-border);
   border-radius: var(--vmlb-radius-md);
   background: var(--vmlb-surface);
-  font-size: 0.8125rem;
+  font-size: var(--vmlb-font-size-sm);
 }
 .vmlb-col-name { margin: 0 0 0.25rem; font-family: var(--vmlb-font-mono); font-weight: 600; }
 .vmlb-col-card .vmlb-muted { margin: 0; }

@@ -276,8 +276,8 @@ watch(suggestions, (value) => emit('suggestions', value))
 </template>
 
 <style scoped>
-.vmlb-llm { margin-bottom: 1.25rem; padding: 1.25rem 1.5rem; font-size: 0.875rem; }
-.vmlb-llm-title { margin: 0 0 0.35rem; font-size: 1rem; font-weight: 600; }
+.vmlb-llm { margin-bottom: 1.25rem; padding: 1.25rem 1.5rem; font-size: var(--vmlb-font-size-md); }
+.vmlb-llm-title { margin: 0 0 0.35rem; font-size: var(--vmlb-font-size-base); font-weight: 600; }
 .vmlb-llm-status { margin: 0.35rem 0; }
 .vmlb-llm-ack { margin: 0.75rem 0; padding: 0.75rem 0.85rem; border-radius: var(--vmlb-radius-md); background: var(--vmlb-accent-soft); }
 .vmlb-llm-ack p { margin: 0 0 0.5rem; }
@@ -289,12 +289,12 @@ watch(suggestions, (value) => emit('suggestions', value))
 .vmlb-llm-bar { width: 100%; height: 0.4rem; overflow: hidden; background: var(--vmlb-surface-sunken); border: 1px solid var(--vmlb-border); border-radius: 999px; }
 .vmlb-llm-bar-fill { width: 100%; height: 100%; background: var(--vmlb-accent); transform-origin: left center; transition: transform 0.35s var(--vmlb-ease); }
 .vmlb-llm-prompt-form { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
-.vmlb-llm-prompt-form textarea { font-family: var(--vmlb-font-mono, monospace); font-size: 0.8125rem; }
+.vmlb-llm-prompt-form textarea { font-family: var(--vmlb-font-mono, monospace); font-size: var(--vmlb-font-size-sm); }
 .vmlb-llm-scope { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.5rem 0 0.75rem; padding: 0; border: 0; }
 .vmlb-llm-scope input[type='number'] { width: 4.5rem; padding: 0.15rem 0.3rem; font: inherit; }
 .vmlb-llm-estimate, .vmlb-llm-job { margin-top: 0.75rem; }
 .vmlb-llm-estimate p, .vmlb-llm-job p { margin: 0.4rem 0; }
-.vmlb-llm-own { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.8125rem; }
+.vmlb-llm-own { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: var(--vmlb-font-size-sm); }
 .vmlb-llm-more { margin-top: 0.75rem; }
 .vmlb-llm-more summary { cursor: pointer; font-weight: 600; }
 .vmlb-llm-key { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; max-width: 28rem; }

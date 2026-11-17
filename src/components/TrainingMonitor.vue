@@ -186,7 +186,7 @@ function milestoneState(pct: number, index: number) {
   display: flex; align-items: center; justify-content: center;
   width: 1.9rem; height: 1.9rem; border-radius: 50%;
   background: var(--vmlb-surface-sunken); color: var(--vmlb-text-subtle);
-  font-size: 0.8125rem; font-weight: 600;
+  font-size: var(--vmlb-font-size-sm); font-weight: 600;
   border: 1px solid var(--vmlb-border);
 }
 .vmlb-milestone-dot.done { background: var(--vmlb-accent); color: var(--vmlb-on-accent); border-color: var(--vmlb-accent); }
@@ -199,6 +199,6 @@ function milestoneState(pct: number, index: number) {
   border-left: 2px solid var(--vmlb-accent);
   border-radius: var(--vmlb-radius-sm);
 }
-.vmlb-metric strong { font-size: 1.375rem; font-weight: 600; }
+.vmlb-metric strong { font-size: var(--vmlb-font-size-xl); font-weight: 600; }
 .vmlb-train-start { margin-top: 0.75rem; }
 </style>

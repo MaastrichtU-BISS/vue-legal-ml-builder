@@ -158,7 +158,7 @@ watch(() => [props.taskId, props.documentId], load, { immediate: true })
 }
 .vmlb-sum-segment.editable { cursor: pointer; transition: border-color var(--vmlb-duration) var(--vmlb-ease); }
 .vmlb-sum-segment.editable:hover { border-color: var(--vmlb-accent); }
-.vmlb-sum-segment-text { font-size: 0.875rem; line-height: 1.5; }
+.vmlb-sum-segment-text { font-size: var(--vmlb-font-size-md); line-height: 1.5; }
 .vmlb-sum-wide { max-width: 44rem; }
 .vmlb-field textarea { resize: vertical; }
 </style>

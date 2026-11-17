@@ -121,8 +121,8 @@ watch(() => [props.taskId, props.documentId], load, { immediate: true })
 .vmlb-sum-timeline li.rejected::before { background: var(--vmlb-error); }
 .vmlb-sum-timeline li.rejected .vmlb-sum-text { color: var(--vmlb-text-muted); }
 .vmlb-sum-timeline .vmlb-badge { margin-right: 0.375rem; }
-.vmlb-sum-text { margin: 0.5rem 0 0; white-space: pre-wrap; line-height: 1.6; font-size: 0.875rem; }
-.vmlb-sum-rejected { margin: 0.5rem 0 0; font-size: 0.8125rem; color: var(--vmlb-error); }
+.vmlb-sum-text { margin: 0.5rem 0 0; white-space: pre-wrap; line-height: 1.6; font-size: var(--vmlb-font-size-md); }
+.vmlb-sum-rejected { margin: 0.5rem 0 0; font-size: var(--vmlb-font-size-sm); color: var(--vmlb-error); }
 .vmlb-sum-end { display: flex; justify-content: flex-end; }
 .vmlb-sum-danger { color: var(--vmlb-error); }
 .vmlb-modal .vmlb-muted { margin: 0 0 var(--vmlb-space-md); }

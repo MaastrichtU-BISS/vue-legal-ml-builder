@@ -11,8 +11,19 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-17
+
 ### Added
 
+- **A type scale a host can theme** (BAIGLE #153): `--vmlb-font-size-2xs`,
+  `-xs`, `-sm`, `-md`, `-base`, `-lg`, `-xl`, `-2xl` and `-3xl`, in
+  `themeTokens` as `font-size-*`. Every font size in the components now comes
+  from the scale, so a host maps it onto its own the way it maps colour,
+  radius and spacing.
+- `--vmlb-label-case` and `--vmlb-label-tracking` (`label-case`,
+  `label-tracking`) for the small labels and eyebrows (`.vmlb-label`, the
+  model lens badge, the guide's recommendation label). The defaults keep them
+  uppercase; `none` and `0` give sentence case.
 - **The demo offers LLM suggestions** (BAIGLE #156): an Annotate view on a
   Dataset of 40 lease clauses, and LLM methods on the demo adapter that run in
   memory, with no network calls. A keyword rule stands in for the model
@@ -52,6 +63,12 @@ tagged `vX.Y.Z`.
 
 ### Changed
 
+- Sizes between steps snap to the scale: 15px titles (model tiles, guide
+  questions) become 16px, the 17px confusion-matrix and tile titles and the
+  19px wizard step titles become 18px, the 22px training stat becomes 20px,
+  and the 13.6px model-fit reason becomes 13px.
+- The summarization components use the scale too; the 17px results-tile title
+  becomes 18px.
 - Errors from `createSelfHostedAdapter` carry the response's HTTP `status`.
 
 ### Removed, compared with the standalone summarizer
@@ -62,6 +79,7 @@ tagged `vX.Y.Z`.
 - The `theme` prop and `--vsumm-*` tokens: the builder's theme applies.
 - The `availableModels` prop: models come from the server.
 - PDF and Word uploads, which were read as text: uploads are plain `.txt`.
+
 
 ## [0.10.1] - 2026-11-13
 
@@ -460,8 +478,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.2...HEAD
-[0.10.2]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.1...v0.10.2
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.8.0...v0.9.0

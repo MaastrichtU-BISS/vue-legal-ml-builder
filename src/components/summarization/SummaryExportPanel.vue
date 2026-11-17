@@ -57,7 +57,7 @@ async function run() {
 .vmlb-sum-export-row { align-items: flex-end; }
 .vmlb-sum-export-format { display: flex; flex-wrap: wrap; gap: var(--vmlb-space-md); margin: 0; padding: 0; border: none; }
 .vmlb-sum-export-format legend { width: 100%; margin-bottom: var(--vmlb-space-2xs); padding: 0; }
-.vmlb-sum-export-format label { display: inline-flex; align-items: center; gap: 0.375rem; font-size: 0.875rem; cursor: pointer; }
+.vmlb-sum-export-format label { display: inline-flex; align-items: center; gap: 0.375rem; font-size: var(--vmlb-font-size-md); cursor: pointer; }
 .vmlb-sum-export-format input { accent-color: var(--vmlb-accent); }
 .vmlb-sum-export-error { margin: var(--vmlb-space-md) 0 0; }
 </style>

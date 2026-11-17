@@ -413,7 +413,7 @@ async function onLabelHoldout() {
    workspace is wider than a reading column. */
 .vmlb-annotate { max-width: 72rem; margin: 0 auto; }
 .vmlb-annotate-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-bottom: 1rem; }
-.vmlb-annotate-head h1 { margin: 0; font-family: var(--vmlb-font-display); font-size: 1.5rem; font-weight: 600; }
+.vmlb-annotate-head h1 { margin: 0; font-family: var(--vmlb-font-display); font-size: var(--vmlb-font-size-2xl); font-weight: 600; }
 .vmlb-progress { margin-bottom: 1.25rem; }
 .vmlb-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.4rem; }
 .vmlb-progress-bar {
@@ -429,15 +429,15 @@ async function onLabelHoldout() {
   transition: transform 0.35s var(--vmlb-ease);
 }
 .vmlb-annotation-skeleton { display: flex; flex-direction: column; gap: 0.75rem; }
-.vmlb-guidelines { margin-bottom: 1.25rem; padding: 0.75rem 1rem; font-size: 0.875rem; }
+.vmlb-guidelines { margin-bottom: 1.25rem; padding: 0.75rem 1rem; font-size: var(--vmlb-font-size-md); }
 .vmlb-guidelines summary { cursor: pointer; font-weight: 600; }
 .vmlb-guidelines-text { white-space: pre-wrap; line-height: 1.6; }
-.vmlb-annotate-holdout { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 1rem; font-size: 0.875rem; }
-.vmlb-row-note { margin: 0 0 0.5rem; font-size: 0.75rem; }
-.vmlb-annotate-modes { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 1rem; font-size: 0.875rem; }
+.vmlb-annotate-holdout { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 1rem; font-size: var(--vmlb-font-size-md); }
+.vmlb-row-note { margin: 0 0 0.5rem; font-size: var(--vmlb-font-size-xs); }
+.vmlb-annotate-modes { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 1rem; font-size: var(--vmlb-font-size-md); }
 .vmlb-hint {
   margin: 0 0 0.5rem; padding: 0.4rem 0.6rem; border-left: 3px solid var(--vmlb-accent);
-  background: var(--vmlb-accent-soft); font-size: 0.8125rem;
+  background: var(--vmlb-accent-soft); font-size: var(--vmlb-font-size-sm);
 }
 
 .vmlb-new-label { display: flex; gap: 0.35rem; margin-bottom: 0.6rem; }
@@ -447,10 +447,10 @@ async function onLabelHoldout() {
   border: 1px solid var(--vmlb-border-strong);
   border-radius: var(--vmlb-radius-sm);
   background: var(--vmlb-surface); color: var(--vmlb-text);
-  font-family: inherit; font-size: 0.8125rem;
+  font-family: inherit; font-size: var(--vmlb-font-size-sm);
 }
 .vmlb-new-label input:focus { outline: none; border-color: var(--vmlb-accent); box-shadow: 0 0 0 3px var(--vmlb-accent-soft); }
-.vmlb-keys { margin: 0.75rem 0 0; font-size: 0.75rem; text-align: center; }
+.vmlb-keys { margin: 0.75rem 0 0; font-size: var(--vmlb-font-size-xs); text-align: center; }
 .vmlb-keys kbd { padding: 0.05rem 0.3rem; border: 1px solid var(--vmlb-border-strong); border-radius: 0.2rem; font-family: var(--vmlb-font-mono, monospace); }
 .vmlb-notice { margin-left: 0.5rem; color: var(--vmlb-accent-strong); font-weight: 600; }
 </style>

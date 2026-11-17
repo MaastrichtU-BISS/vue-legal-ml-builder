@@ -113,7 +113,7 @@ watch(selectedModel, (v) => emit('update:model', v), { immediate: true })
 .vmlb-sum-fieldset legend { margin-bottom: var(--vmlb-space-xs); padding: 0; }
 .vmlb-sum-segmented { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--vmlb-border-strong); border-radius: var(--vmlb-radius-md); overflow: hidden; }
 .vmlb-sum-segmented label {
-  position: relative; padding: 0.4rem 0.75rem; font-size: 0.8125rem; font-weight: 600;
+  position: relative; padding: 0.4rem 0.75rem; font-size: var(--vmlb-font-size-sm); font-weight: 600;
   color: var(--vmlb-text-muted); background: var(--vmlb-surface); cursor: pointer;
   transition: background-color var(--vmlb-duration) var(--vmlb-ease), color var(--vmlb-duration) var(--vmlb-ease);
 }
@@ -127,6 +127,6 @@ watch(selectedModel, (v) => emit('update:model', v), { immediate: true })
 .vmlb-sum-fieldset .vmlb-hint { margin: 0.25rem 0 0; }
 .vmlb-sum-models-error { align-self: start; margin: 0; }
 .vmlb-sum-slider { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: var(--vmlb-space-sm); }
-.vmlb-sum-slider label { display: flex; justify-content: space-between; font-size: 0.8125rem; font-weight: 600; }
+.vmlb-sum-slider label { display: flex; justify-content: space-between; font-size: var(--vmlb-font-size-sm); font-weight: 600; }
 .vmlb-sum-slider input { width: 100%; accent-color: var(--vmlb-accent); }
 </style>
