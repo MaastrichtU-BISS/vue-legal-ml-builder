@@ -1,6 +1,8 @@
 import type {
+  AnnotationAssignment,
   AnnotationTask,
   Dataset,
+  Id,
   MLAdapter,
   MlModel,
   ModelCatalog,
@@ -12,6 +14,11 @@ import type {
   TrainingMetricPoint,
 } from '../types'
 import { AVAILABLE_MODELS_DEMO } from './demoCatalog'
+import { CLAUSE_LABELS, LEASE_CLAUSES } from './demoClauses'
+import { createMockLlm } from './mockLlm'
+
+/** The Dataset the demo's annotate view opens. */
+export const DEMO_ANNOTATION_DATASET = 'ds-2'
 
 let datasetSeq = 0
 let modelSeq = 0
@@ -31,6 +38,24 @@ const datasets: Dataset[] = [
     annotation_progress: 100,
     annotated_count: 240,
     total_count: 240,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: DEMO_ANNOTATION_DATASET,
+    user_id: 'demo-user',
+    name: 'Lease clauses',
+    description: 'Clauses to label as an obligation, a permission or a prohibition',
+    file_path: '/tmp/lease-clauses.csv',
+    row_count: LEASE_CLAUSES.length,
+    columns: [{ name: 'text', type: 'object', null_count: 0, unique_count: LEASE_CLAUSES.length }],
+    task_type: 'classification',
+    dataset_type: 'unlabeled',
+    annotation_progress: 0,
+    annotated_count: 0,
+    total_count: LEASE_CLAUSES.length,
+    text_column: 'text',
+    labels: CLAUSE_LABELS,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -87,15 +112,56 @@ function delay<T>(value: T, ms = 300): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
 }
 
+/** The annotate view's items, one per lease clause, all pending. */
+function demoTasks(): AnnotationTask[] {
+  const at = new Date().toISOString()
+  return LEASE_CLAUSES.map((text, index) => ({
+    id: `task-${index + 1}`,
+    dataset_id: DEMO_ANNOTATION_DATASET,
+    item_index: index,
+    text,
+    annotation_label: null,
+    status: 'pending' as const,
+    label_source: null,
+    is_holdout: false,
+    created_at: at,
+    updated_at: at,
+  }))
+}
+
 export function createMockAdapter(): MLAdapter {
+  // Each adapter has its own items and LLM state, so tests start clean.
+  const tasks = demoTasks()
+  const labelsOf = (datasetId: Id) => datasets.find((d) => d.id === datasetId)?.labels ?? []
+  const taskOf = (id: Id) => {
+    const task = tasks.find((t) => t.id === id)
+    if (!task) throw new Error('Task not found')
+    return task
+  }
+  const tasksOf = (datasetId?: Id) => tasks.filter((t) => !datasetId || t.dataset_id === datasetId)
+  /** A Dataset with its annotation counts as they are now. */
+  const withProgress = (ds: Dataset): Dataset => {
+    const items = tasksOf(ds.id)
+    if (!items.length) return ds
+    const annotated = items.filter((t) => t.status === 'annotated').length
+    return { ...ds, annotated_count: annotated, annotation_progress: Math.round((annotated / items.length) * 100) }
+  }
+  const label = (task: AnnotationTask, value: string, source: string) => {
+    task.annotation_label = value
+    task.status = 'annotated'
+    task.label_source = source
+    task.updated_at = new Date().toISOString()
+    return { ...task }
+  }
+
   return {
     async listDatasets() {
-      return delay([...datasets])
+      return delay(datasets.map(withProgress))
     },
     async getDataset(id) {
       const ds = datasets.find((d) => d.id === id)
       if (!ds) throw new Error('Dataset not found')
-      return delay(ds)
+      return delay(withProgress(ds))
     },
     async uploadDataset(file, meta) {
       datasetSeq++
@@ -240,42 +306,63 @@ export function createMockAdapter(): MLAdapter {
       )
     },
 
-    async getNextAnnotationTask() {
-      const task: AnnotationTask = {
-        id: 'task-1',
-        dataset_id: 'ds-1',
-        item_index: 0,
-        text: 'The tenant shall pay rent on the first day of each month.',
-        status: 'pending',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+    async getNextAnnotationTask(_projectId, datasetId, options) {
+      const items = tasksOf(datasetId)
+      const holdout = !!options?.holdout
+      const next = items
+        .filter((t) => t.status === 'pending' && !!t.is_holdout === holdout)
+        .sort((a, b) => a.item_index - b.item_index)[0]
+      const annotated = items.filter((t) => t.status === 'annotated').length
+      const stats = {
+        total: items.length,
+        annotated,
+        percentage: items.length ? Math.round((annotated / items.length) * 100) : 0,
+        holdout_remaining: items.filter((t) => t.is_holdout && t.status === 'pending').length,
       }
-      return delay({ task, stats: { total: 10, annotated: 3, percentage: 30 } })
+      return delay({ task: next ? { ...next } : null, stats })
     },
-    async saveAnnotation(taskId, label) {
-      return delay({ id: taskId, dataset_id: 'ds-1', item_index: 0, text: '', annotation_label: String(label), status: 'annotated', created_at: '', updated_at: '' })
+    async listAnnotationTasks(_projectId, filter) {
+      return delay(
+        tasksOf(filter.datasetId)
+          .filter((t) => !filter.status || t.status === filter.status)
+          .map((t) => ({ ...t })),
+      )
+    },
+    async saveAnnotation(taskId, value) {
+      return delay(label(taskOf(taskId), String(value), 'human'))
     },
     async skipAnnotation(taskId) {
-      return delay({ id: taskId, dataset_id: 'ds-1', item_index: 0, text: '', status: 'skipped', created_at: '', updated_at: '' })
+      const task = taskOf(taskId)
+      task.status = 'skipped'
+      task.updated_at = new Date().toISOString()
+      return delay({ ...task })
     },
     async getAnnotationAssignment(taskId) {
-      return delay({
-        document: { name: 'Lease clauses, item 1', full_text: 'The tenant shall pay rent on the first day of each month.' },
+      const task = taskOf(taskId)
+      const opened: AnnotationAssignment = {
+        document: { name: `Lease clauses, item ${task.item_index + 1}`, full_text: task.text },
         assignment: {
-          id: taskId, annotator: 'demo', order: 1, status: 'pending', confidence: 0,
-          annotations: [], document_annotations: [], document_relations: [],
+          id: taskId, annotator: 'demo', order: task.item_index + 1, status: task.status === 'annotated' ? 'done' : 'pending', confidence: 0,
+          annotations: [],
+          document_annotations: task.annotation_label ? [{ id: 1, label: task.annotation_label, confidence: 0 }] : [],
+          document_relations: [],
         },
-        labels: ['Obligation', 'Permission', 'Prohibition'],
-        annotationLevel: 'document' as const,
-        labelSource: null,
+        labels: labelsOf(task.dataset_id),
+        annotationLevel: task.status === 'annotated' ? 'document' : null,
+        labelSource: task.label_source ?? null,
         fileLabel: null,
         hint: null,
-      })
+      }
+      return delay(opened)
     },
     async saveAnnotationAssignment(taskId, assignment) {
-      const label = assignment.document_annotations[0]?.label ?? ''
-      return delay({ id: taskId, dataset_id: 'ds-1', item_index: 0, text: '', annotation_label: label, status: 'annotated', created_at: '', updated_at: '' })
+      const value = assignment.document_annotations[0]?.label
+      if (!value) throw new Error('Choose a label for this item.')
+      return delay(label(taskOf(taskId), value, 'human'))
     },
+
+    // LLM assistance: a keyword rule stands in for the model.
+    ...createMockLlm({ tasks, labelsOf }, delay),
 
     // Summarization: queued, then processing, then complete over three polls.
     async summarize(request) {
