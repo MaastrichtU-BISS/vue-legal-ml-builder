@@ -351,7 +351,7 @@ async function createModel() {
         </p>
         <p v-else class="vmlb-muted vmlb-indent">Available models for <strong>{{ taskLabel }}</strong> tasks.</p>
 
-        <div v-if="!showAllModels && hasGuide && !nothingFits" class="vmlb-chooser">
+        <div v-if="!showAllModels && hasGuide && !nothingFits && availableModels.length" class="vmlb-chooser">
           <ModelQuestionTree
             :task-type="selectedDataset.task_type"
             :current-model-type="modelType"

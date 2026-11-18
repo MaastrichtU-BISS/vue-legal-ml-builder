@@ -161,4 +161,11 @@ describe('every guide recommendation', () => {
     expect(advice.modelType).toBe('distilbert_ner')
     expect(advice.why).toContain('not offered')
   })
+
+  it('recommends an offered model even when the pick has no fallback list', () => {
+    const option = { label: 'Quick', recommend: 'distilbert_ner' }
+    const advice = adviseFor(option, { rowCount: 2000 }, { available: ['legalbert_ner'] })
+    expect(advice.modelType).toBe('legalbert_ner')
+    expect(advice.why).toContain('not offered')
+  })
 })

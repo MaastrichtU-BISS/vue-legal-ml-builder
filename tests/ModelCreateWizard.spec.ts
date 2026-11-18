@@ -932,6 +932,8 @@ describe('ModelCreateWizard', () => {
       expect(wrapper.find('.vmlb-model-card.vmlb-selected').exists()).toBe(false)
       const submit = wrapper.find('.vmlb-actions .vmlb-btn-primary')
       expect(!submit.exists() || submit.attributes('disabled') !== undefined).toBe(true)
+      // No guide to recommend a model nothing offers.
+      expect(wrapper.find('.vmlb-guide-tree').exists()).toBe(false)
     })
 
     it('when no model fits, says why and what would make the dataset trainable', async () => {

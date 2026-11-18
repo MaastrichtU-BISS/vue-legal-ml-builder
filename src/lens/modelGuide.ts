@@ -178,9 +178,12 @@ export function adviseFor(option: GuideOption, facts: DatasetFacts = {}, context
   const tooFewDocuments = facts.rowCount !== undefined && facts.rowCount < SMALL_DATASET_ROWS
   // A recommendation the Dataset is not offered falls back the same way.
   const notOffered = context.available !== undefined && !context.available.includes(recommended)
-  const forFewerDocuments = tooFewDocuments || notOffered
+  const fallback = tooFewDocuments || notOffered
     ? FALLBACKS[recommended]?.find((type) => context.available?.includes(type) ?? true)
     : undefined
+  // Not offered and nothing in its fallback list is either: the first model the
+  // Dataset is offered, so the guide never recommends one it cannot use.
+  const forFewerDocuments = fallback ?? (notOffered ? context.available?.[0] : undefined)
   const modelType = forFewerDocuments ?? recommended
   const { schema, rules, multiclass } = settingsSetup(modelType, {
     modelInfo: context.catalogue?.[modelType],
