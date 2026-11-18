@@ -2,7 +2,7 @@
 import { computed, inject, ref, watch } from 'vue'
 import type { MLAdapter } from '../types'
 import { useParameterComparison } from '../composables/useParameterComparison'
-import { parameterSchemas } from './modelCatalogData'
+import { isEntityModelType, isSummaryModelType, modelTypeLabel, parameterSchemas } from './modelCatalogData'
 import PlotlyChart from './shared/PlotlyChart.vue'
 import Icon from './shared/Icon.vue'
 
@@ -12,9 +12,21 @@ const injectedAdapter = inject<MLAdapter | null>('vmlb:adapter', null)
 const adapter = computed(() => props.adapter ?? injectedAdapter)
 const { points, isLoading, error, load } = useParameterComparison(adapter.value as MLAdapter)
 
-const metric = ref(props.metric ?? 'accuracy')
+const metric = ref(props.metric ?? defaultMetricFor(props.modelType))
 const parameterKeys = computed(() => (parameterSchemas[props.modelType] || []).map((p) => p.key))
 const selectedParam = ref(parameterKeys.value[0] ?? '')
+
+// The score each model family reports, so the explorer opens on one that exists.
+function defaultMetricFor(modelType: string): string {
+  if (isSummaryModelType(modelType)) return 'rouge1'
+  return isEntityModelType(modelType) ? 'f1_score' : 'accuracy'
+}
+
+watch(() => props.modelType, (modelType) => {
+  if (!props.metric) metric.value = defaultMetricFor(modelType)
+  // The chosen parameter may not exist on the new model.
+  if (!parameterKeys.value.includes(selectedParam.value)) selectedParam.value = parameterKeys.value[0] ?? ''
+})
 
 async function refresh() {
   await load(props.modelType, metric.value)
@@ -68,6 +80,9 @@ const paramExplanation = computed(() => {
             <option value="precision">precision</option>
             <option value="recall">recall</option>
             <option value="f1_score">f1_score</option>
+            <option value="rouge1">rouge1</option>
+            <option value="rouge2">rouge2</option>
+            <option value="rougeL">rougeL</option>
           </select>
         </label>
       </div>
@@ -82,7 +97,7 @@ const paramExplanation = computed(() => {
       <div v-if="points.length < 2" class="vmlb-empty">
         <Icon name="chart" size="2rem" class="vmlb-empty-icon" />
         <p class="vmlb-empty-title">Not enough runs yet</p>
-        <p>Train at least 2 {{ modelType }} models to see how {{ selectedParam || 'a parameter' }} affects {{ metric }}.</p>
+        <p>Train at least 2 {{ modelTypeLabel(modelType) }} models to see how {{ selectedParam || 'a parameter' }} affects {{ metric }}.</p>
       </div>
       <template v-else>
         <PlotlyChart v-if="plotData" :plot-data="plotData" plot-id="vmlb-param-explorer" />

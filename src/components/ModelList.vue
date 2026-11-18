@@ -2,7 +2,8 @@
 import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
 import type { MLAdapter, MlModel } from '../types'
 import { useModels } from '../composables/useModels'
-import { numericMetric } from '../utils/metrics'
+import { scoreRows } from '../utils/metrics'
+import { modelTypeLabel } from './modelCatalogData'
 import Icon from './shared/Icon.vue'
 
 const props = defineProps<{ adapter?: MLAdapter; datasetId?: string }>()
@@ -27,6 +28,15 @@ const statusClass: Record<string, string> = {
 async function onDelete(id: string) {
   await remove(id)
   confirmingId.value = null
+}
+
+// The scores a model reports, in the order a no-code user reads them. NER
+// models report F1, summarization models report ROUGE, and classification
+// models report accuracy; whichever are present are shown.
+const LIST_SCORE_KEYS = ['accuracy', 'f1_score', 'rouge1', 'rougeL']
+
+function listScores(model: MlModel) {
+  return scoreRows(model.metrics, LIST_SCORE_KEYS, 1)
 }
 </script>
 
@@ -62,7 +72,7 @@ async function onDelete(id: string) {
         <div class="vmlb-tile-head">
           <div>
             <h3>{{ model.name }}</h3>
-            <p class="vmlb-muted vmlb-capitalize">{{ model.model_type.replace(/_/g, ' ') }}</p>
+            <p class="vmlb-muted">{{ modelTypeLabel(model.model_type) }}</p>
           </div>
           <button class="vmlb-icon-btn" title="Delete model" @click="confirmingId = model.id">
             <Icon name="close" />
@@ -78,9 +88,9 @@ async function onDelete(id: string) {
             <span class="vmlb-muted">Created</span>
             <span>{{ new Date(model.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) }}</span>
           </div>
-          <div v-if="numericMetric(model.metrics, 'accuracy') !== undefined" class="vmlb-row">
-            <span class="vmlb-muted">Accuracy</span>
-            <span class="vmlb-num">{{ (numericMetric(model.metrics, 'accuracy')! * 100).toFixed(1) }}%</span>
+          <div v-for="score in listScores(model)" :key="score.key" class="vmlb-row">
+            <span class="vmlb-muted">{{ score.label }}</span>
+            <span class="vmlb-num">{{ score.text }}</span>
           </div>
         </div>
 
@@ -106,7 +116,6 @@ async function onDelete(id: string) {
 .vmlb-list-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.75rem; }
 .vmlb-list-header h2 { margin: 0 0 0.25rem; font-size: var(--vmlb-font-size-3xl); }
 .vmlb-list-header .vmlb-muted { margin: 0; max-width: 48ch; }
-.vmlb-capitalize { text-transform: capitalize; }
 .vmlb-confirm {
   display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto;
   padding-top: 0.75rem; border-top: 1px dashed var(--vmlb-border-strong);

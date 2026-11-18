@@ -18,6 +18,9 @@ describe('lensFamily', () => {
     expect(lensFamily('nmf')).toBe('topic')
     expect(lensFamily('legalbert')).toBe('transformer')
     expect(lensFamily('roberta')).toBe('transformer')
+    expect(lensFamily('legalbert_ner')).toBe('transformer')
+    expect(lensFamily('distilbert_ner')).toBe('transformer')
+    expect(lensFamily('t5_small')).toBe('transformer')
   })
 
   it('falls back to linear for an unknown type', () => {
@@ -33,6 +36,12 @@ describe('defaultLabels', () => {
   it('returns no labels for unsupervised tasks', () => {
     expect(defaultLabels('clustering')).toEqual([])
     expect(defaultLabels('topic_modeling')).toEqual([])
+  })
+
+  it('invents no placeholder labels for entities or summaries', () => {
+    expect(defaultLabels('ner')).toEqual([])
+    expect(defaultLabels('named_entity_recognition')).toEqual([])
+    expect(defaultLabels('summarization')).toEqual([])
   })
 
   it('falls back to two generic classes', () => {
@@ -66,6 +75,23 @@ describe('lensCopy', () => {
   it('states the coarse-curve caveat for transformers', () => {
     const copy = lensCopy('legalbert', { epochs: 3, learning_rate: 2e-5 }, ['A', 'B'])
     expect(copy.legend.some((l) => l.detail.includes('phase markers'))).toBe(true)
+  })
+
+  it('describes finding entities without the classification copy', () => {
+    for (const type of ['legalbert_ner', 'distilbert_ner']) {
+      const copy = lensCopy(type, { epochs: 3, learning_rate: 5e-5 }, [])
+      expect(copy.reading).not.toContain('liable')
+      expect(copy.reading).toContain('entity')
+      expect(copy.legend.some((l) => l.label === 'Span')).toBe(true)
+    }
+    expect(lensCopy('legalbert_ner', {}, []).reading).toContain('legal-language')
+    expect(lensCopy('distilbert_ner', {}, []).reading).toContain('general-language')
+  })
+
+  it('describes writing a summary, from a general-language model', () => {
+    const copy = lensCopy('t5_small', { epochs: 3, learning_rate: 3e-4 }, [])
+    expect(copy.reading).toContain('summary')
+    expect(copy.reading).toContain('general-language')
   })
 
   it('always returns a headline, reading and legend', () => {
@@ -118,11 +144,18 @@ describe('decisionTreeFor', () => {
     }
   })
 
-  it('offers no Model, and no guide, for a task type the backend cannot train yet', () => {
-    for (const task of ['ner', 'named_entity_recognition', 'summarization']) {
-      expect(modelsByTaskType[task] ?? []).toEqual([])
-      expect(decisionTreeFor(task)).toBeNull()
+  it('offers the entity and summary Models, each with a guide', () => {
+    for (const task of ['ner', 'named_entity_recognition']) {
+      expect(modelsByTaskType[task]).toEqual(['legalbert_ner', 'distilbert_ner'])
+      expect(decisionTreeFor(task)).not.toBeNull()
     }
+    expect(modelsByTaskType.summarization).toEqual(['t5_small'])
+    expect(decisionTreeFor('summarization')).not.toBeNull()
+  })
+
+  it('offers no Model, and no guide, for a task type the backend cannot train yet', () => {
+    expect(modelsByTaskType.regression ?? []).toEqual([])
+    expect(decisionTreeFor('regression')).toBeNull()
   })
 
   it('asks and answers in plain words, with no algorithm terms or things a user cannot know', () => {

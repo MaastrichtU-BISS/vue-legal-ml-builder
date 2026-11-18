@@ -11,6 +11,39 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-18
+
+### Added
+
+- **The wizard offers the NER and summarization models** (#14, BAIGLE #117):
+  `legalbert_ner` and `distilbert_ner` for an NER Dataset, and `t5_small` for a
+  summarization Dataset. Each has a catalogue entry, a plain-language guide and
+  a parameter form whose keys, ranges and defaults match legal-ml-core's.
+- Model scores are shown per view. The model list shows accuracy, F1, ROUGE-1
+  and ROUGE-L, so classifiers now show F1 beside accuracy. The model page and
+  the training monitor show accuracy, precision, recall and F1 for classifiers;
+  F1, with precision and recall, for entity models; and ROUGE-1, ROUGE-2 and
+  ROUGE-L for summarization models. A score is never a blank or NaN. The
+  parameter explorer offers the ROUGE scores too.
+- The model page shows an entity model's predictions as each entity with its
+  type ("No entities found" when there are none) and its per-entity report,
+  and a summarization model's prediction as the written summary; neither shows
+  the classifier performance chart.
+- `isEntityModelType`, `isSummaryModelType`, `ENTITY_MODEL_TYPES` and
+  `SUMMARY_MODEL_TYPES` are exported.
+
+### Fixed
+
+- The wizard no longer lets a model the dataset cannot train be created: a
+  model chosen while the fit was loading is replaced once the fit says it
+  cannot train it (or leaves it out), as is one the fallback catalogue does
+  not offer; Create & train waits for the fit or catalogue, and only the
+  latest request counts when the dataset changes, defaults included. A
+  model the dataset is not offered can never be chosen (by a click, the guide
+  or a late overview) or submitted; the guide falls back from a
+  recommendation that is not offered and says so; and a catalogue that names
+  the task with no models offers none rather than the built-in list.
+
 ## [0.11.0] - 2026-11-17
 
 ### Added
@@ -484,7 +517,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.9.0...v0.10.0

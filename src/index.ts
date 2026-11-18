@@ -147,7 +147,7 @@ export { useTrainingCurves } from './composables/useTrainingCurves'
 export { TRAINING_METRIC_GROUPS, curveCharts, isLearningCurvePoint, metricGroupOf, metricUnitOf, stageEvents, xKindOf } from './utils/trainingCharts'
 export type { CurveChart, CurveChartOptions, CurveSeries, CurveXAxis, StageEvent } from './utils/trainingCharts'
 
-export { allModelInfo, modelsByTaskType, parameterRules, parameterSchemas, quickGuideFor, taskTypeLabel } from './components/modelCatalogData'
+export { allModelInfo, ENTITY_MODEL_TYPES, isEntityModelType, isSummaryModelType, modelsByTaskType, modelTypeLabel, parameterRules, parameterSchemas, quickGuideFor, SUMMARY_MODEL_TYPES, taskTypeLabel } from './components/modelCatalogData'
 export { classColor, defaultLabels, lensCopy, lensFamily } from './lens/modelLens'
 export type { LensCopy, LensFamily, LensPoint } from './lens/modelLens'
 export { adviseFor, decisionTreeFor, IMBALANCE_RATIO, SMALL_DATASET_ROWS } from './lens/modelGuide'

@@ -1,4 +1,4 @@
-import { allModelInfo } from '../components/modelCatalogData'
+import { allModelInfo, defaultModelFor } from '../components/modelCatalogData'
 import { reconcileChoices, settingsSetup } from '../components/parameterOptions'
 import type { ModelTypeInfo } from '../types'
 
@@ -90,10 +90,39 @@ const TOPIC: DecisionTree = {
   },
 }
 
+const ENTITIES: DecisionTree = {
+  root: 'goal',
+  nodes: {
+    goal: {
+      question: 'What matters most when finding entities?',
+      help: 'Both models look for names, dates and amounts in your documents.',
+      options: [
+        { label: 'Finding every entity, even with unusual wording', recommend: 'legalbert_ner', note: 'it has read a great deal of legal text, so it recognises names and terms it has not seen in your examples' },
+        { label: 'Getting an answer quickly on an ordinary computer', recommend: 'distilbert_ner', note: 'it is smaller and faster to train, and still finds most entities' },
+      ],
+    },
+  },
+}
+
+const SUMMARIES: DecisionTree = {
+  root: 'length',
+  nodes: {
+    length: {
+      question: 'How long are the documents you want summarised?',
+      options: [
+        { label: 'Short documents, a few paragraphs', recommend: 't5_small', note: 'it can read all of a short document and write a few sentences about it' },
+        { label: 'Long documents, such as full judgments', recommend: 't5_small', note: 'it reads more of each document before writing, so it can cover the important parts of a long text', settings: { parameters: { max_source_length: 1024 }, why: 'it reads up to 1024 word pieces of each document rather than 512, which takes longer but reaches the end of a long judgment' } },
+      ],
+    },
+  },
+}
+
 export function decisionTreeFor(taskType: string): DecisionTree | null {
   if (['classification', 'document_classification', 'judgment_prediction'].includes(taskType)) return CLASSIFICATION
   if (taskType === 'clustering') return CLUSTERING
   if (taskType === 'topic_modeling') return TOPIC
+  if (['ner', 'named_entity_recognition'].includes(taskType)) return ENTITIES
+  if (taskType === 'summarization') return SUMMARIES
   return null
 }
 
@@ -123,8 +152,11 @@ export interface GuideAdvice {
  * in advance to learn from. */
 export const SMALL_DATASET_ROWS = 1000
 // Models that need a lot of documents, and what to steer to instead, in order.
-const NEEDS_MANY_DOCUMENTS = ['legalbert', 'roberta']
-const FOR_FEWER_DOCUMENTS = ['random_forest', 'logistic_regression', 'svm', 'decision_tree', 'naive_bayes']
+const FALLBACKS: Record<string, string[]> = {
+  legalbert: ['random_forest', 'logistic_regression', 'svm', 'decision_tree', 'naive_bayes'],
+  roberta: ['random_forest', 'logistic_regression', 'svm', 'decision_tree', 'naive_bayes'],
+  legalbert_ner: ['distilbert_ner'],
+}
 
 /** The most common label at least this many times the rarest counts as imbalanced. */
 export const IMBALANCE_RATIO = 3
@@ -144,9 +176,15 @@ function imbalanced(labelCounts?: Record<string, number> | null): boolean {
 export function adviseFor(option: GuideOption, facts: DatasetFacts = {}, context: GuideContext = {}): GuideAdvice {
   const recommended = option.recommend ?? ''
   const tooFewDocuments = facts.rowCount !== undefined && facts.rowCount < SMALL_DATASET_ROWS
-  const forFewerDocuments = tooFewDocuments && NEEDS_MANY_DOCUMENTS.includes(recommended)
-    ? FOR_FEWER_DOCUMENTS.find((type) => context.available?.includes(type) ?? true)
+  // A recommendation the Dataset is not offered falls back the same way.
+  const notOffered = context.available !== undefined && !context.available.includes(recommended)
+  const fallback = tooFewDocuments || notOffered
+    ? FALLBACKS[recommended]?.find((type) => context.available?.includes(type) ?? true)
     : undefined
+  // Not offered and nothing in its fallback list is either: the wizard's own
+  // default among the offered models, so the guide never recommends one it
+  // cannot use.
+  const forFewerDocuments = fallback ?? (notOffered && context.available?.length ? defaultModelFor(context.available) : undefined)
   const modelType = forFewerDocuments ?? recommended
   const { schema, rules, multiclass } = settingsSetup(modelType, {
     modelInfo: context.catalogue?.[modelType],
@@ -156,8 +194,12 @@ export function adviseFor(option: GuideOption, facts: DatasetFacts = {}, context
   const offers = (key: string) => schema.some((p) => p.key === key)
   const label = (type: string) => allModelInfo[type]?.label ?? type
   const reasons = [
-    forFewerDocuments
-      ? `Recommended because this Dataset has only ${facts.rowCount!.toLocaleString('en-GB')} documents, which is too few for ${label(recommended)} to learn from, and ${label(forFewerDocuments)} gets good results from fewer.`
+    forFewerDocuments && notOffered
+      ? `${label(recommended)} is not offered for this Dataset, so ${label(forFewerDocuments)} is recommended instead.`
+      : forFewerDocuments
+      ? recommended === 'legalbert_ner'
+        ? `Recommended because this Dataset has only ${facts.rowCount!.toLocaleString('en-GB')} documents, and ${label(forFewerDocuments)} is faster and lighter to train on a small set than ${label(recommended)}.`
+        : `Recommended because this Dataset has only ${facts.rowCount!.toLocaleString('en-GB')} documents, which is too few for ${label(recommended)} to learn from, and ${label(forFewerDocuments)} gets good results from fewer.`
       : option.note ? `Recommended because ${lowerFirst(option.note)}` : '',
   ]
   // The settings the advice changes, before they are fitted to the schema and rules.

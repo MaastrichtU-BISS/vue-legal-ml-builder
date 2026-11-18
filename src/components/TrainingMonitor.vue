@@ -2,7 +2,8 @@
 import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
 import type { MLAdapter, TrainingCurvesOptions } from '../types'
 import { useTraining } from '../composables/useTraining'
-import { numericMetric } from '../utils/metrics'
+import { scoreRows } from '../utils/metrics'
+import { modelTypeLabel } from './modelCatalogData'
 import ConfusionMatrix from './shared/ConfusionMatrix.vue'
 import TrainingCurves from './TrainingCurves.vue'
 import Icon from './shared/Icon.vue'
@@ -49,6 +50,11 @@ const progress = computed(() => job.value?.progress ?? 0)
 const isTraining = computed(() => job.value ? ['pending', 'running'].includes(job.value.status) : false)
 // The server marks a stopped run's Model as failed; the job says it was stopped.
 const wasStopped = computed(() => job.value?.status === 'cancelled')
+
+// Classification reports accuracy, NER reports F1, and summarization reports
+// ROUGE; whichever the model has are shown, never a blank or NaN.
+const SCORE_KEYS = ['accuracy', 'precision', 'recall', 'f1_score', 'rouge1', 'rouge2', 'rougeL']
+const scores = computed(() => scoreRows(model.value?.metrics, SCORE_KEYS))
 
 async function onStart() {
   endedFirst.value = false
@@ -116,7 +122,7 @@ function milestoneState(pct: number, index: number) {
     <div v-else-if="model?.status === 'pending'" class="vmlb-card">
       <h3 class="vmlb-card-title">Ready to start?</h3>
       <p class="vmlb-muted">
-        Begin training <strong>{{ model.name }}</strong> ({{ model.model_type.replace(/_/g, ' ') }}).
+        Begin training <strong>{{ model.name }}</strong> ({{ modelTypeLabel(model.model_type) }}).
       </p>
       <button class="vmlb-btn-primary vmlb-train-start" :disabled="isStarting" @click="onStart">
         <Icon name="play" /> {{ isStarting ? 'Starting…' : 'Start training' }}
@@ -126,22 +132,10 @@ function milestoneState(pct: number, index: number) {
     <!-- Completed -->
     <div v-else-if="model?.status === 'completed'" class="vmlb-card">
       <h3 class="vmlb-card-title">Training complete</h3>
-      <div v-if="model.metrics" class="vmlb-metrics-grid">
-        <div v-if="numericMetric(model.metrics, 'accuracy') !== undefined" class="vmlb-metric">
-          <span class="vmlb-label">Accuracy</span>
-          <strong class="vmlb-num">{{ (numericMetric(model.metrics, 'accuracy')! * 100).toFixed(2) }}%</strong>
-        </div>
-        <div v-if="numericMetric(model.metrics, 'precision') !== undefined" class="vmlb-metric">
-          <span class="vmlb-label">Precision</span>
-          <strong class="vmlb-num">{{ (numericMetric(model.metrics, 'precision')! * 100).toFixed(2) }}%</strong>
-        </div>
-        <div v-if="numericMetric(model.metrics, 'recall') !== undefined" class="vmlb-metric">
-          <span class="vmlb-label">Recall</span>
-          <strong class="vmlb-num">{{ (numericMetric(model.metrics, 'recall')! * 100).toFixed(2) }}%</strong>
-        </div>
-        <div v-if="numericMetric(model.metrics, 'f1_score') !== undefined" class="vmlb-metric">
-          <span class="vmlb-label">F1</span>
-          <strong class="vmlb-num">{{ (numericMetric(model.metrics, 'f1_score')! * 100).toFixed(2) }}%</strong>
+      <div v-if="scores.length" class="vmlb-metrics-grid">
+        <div v-for="score in scores" :key="score.key" class="vmlb-metric">
+          <span class="vmlb-label">{{ score.label }}</span>
+          <strong class="vmlb-num">{{ score.text }}</strong>
         </div>
       </div>
       <ConfusionMatrix

@@ -96,7 +96,7 @@ onUnmounted(stop)
         </section>
         <p v-if="!charts.length" class="vmlb-hint">
           This model type records its stages, not a step-by-step curve. Step-by-step curves are
-          only available when fine-tuning LegalBERT or RoBERTa.
+          only available when fine-tuning LegalBERT, RoBERTa, the entity models or T5 small.
         </p>
       </template>
     </template>

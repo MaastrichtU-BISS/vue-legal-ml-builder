@@ -1,3 +1,5 @@
+import { isEntityModelType, isSummaryModelType } from '../components/modelCatalogData'
+
 export type LensFamily = 'tree' | 'linear' | 'cluster' | 'topic' | 'transformer'
 
 const FAMILY_BY_TYPE: Record<string, LensFamily> = {
@@ -13,6 +15,9 @@ const FAMILY_BY_TYPE: Record<string, LensFamily> = {
   nmf: 'topic',
   legalbert: 'transformer',
   roberta: 'transformer',
+  legalbert_ner: 'transformer',
+  distilbert_ner: 'transformer',
+  t5_small: 'transformer',
 }
 
 export function lensFamily(modelType: string): LensFamily {
@@ -41,7 +46,7 @@ export function classColor(index: number): string {
 
 export function defaultLabels(taskType: string, labels?: string[] | null): string[] {
   if (labels && labels.length) return labels.slice(0, 5)
-  if (['clustering', 'topic_modeling'].includes(taskType)) return []
+  if (['clustering', 'topic_modeling', 'ner', 'named_entity_recognition', 'summarization'].includes(taskType)) return []
   return ['Category A', 'Category B']
 }
 
@@ -189,6 +194,31 @@ export function lensCopy(modelType: string, parameters: Record<string, unknown>,
   if (family === 'transformer') {
     const epochs = num(parameters.epochs, 3)
     const lr = num(parameters.learning_rate, 2e-5)
+    const legalLanguage = modelType === 'legalbert' || modelType === 'legalbert_ner'
+    if (isEntityModelType(modelType)) {
+      return {
+        headline: `Every word read in the context of every other`,
+        reading: `Rather than matching a list of names, the model weighs each word against the rest of the sentence to decide where an entity starts and ends. ${Math.round(epochs)} passes over your examples fine-tune it from a ${legalLanguage ? 'legal-language' : 'general-language'} starting point to the spans you mark.`,
+        legend: [
+          { label: 'Attention', detail: `How strongly each word attends to the others` },
+          { label: 'Span', detail: `A run of words the model labels as one entity` },
+          { label: 'Fine-tuning', detail: `${Math.round(epochs)} passes at learning rate ${lr}` },
+          { label: 'Training curve', detail: `Loss and scores are logged as training goes, step by step` },
+        ],
+      }
+    }
+    if (isSummaryModelType(modelType)) {
+      return {
+        headline: `A text-to-text model that writes the summary`,
+        reading: `The model reads the document and writes a new summary word by word, guided by the summaries in your examples. ${Math.round(epochs)} passes over your data fine-tune it from a general-language starting point to the style of those summaries.`,
+        legend: [
+          { label: 'Reading', detail: `The part of each document the model takes in` },
+          { label: 'Writing', detail: `Each word chosen from what it has read and written so far` },
+          { label: 'Fine-tuning', detail: `${Math.round(epochs)} passes at learning rate ${lr}` },
+          { label: 'Training curve', detail: `Loss and scores are logged as training goes, step by step` },
+        ],
+      }
+    }
     return {
       headline: `Every word read in the context of every other`,
       reading: `Rather than counting words, the model weighs each word against the rest of the sentence, so "not liable" and "liable" separate cleanly. ${Math.round(epochs)} passes over your data fine-tune those weights from a legal-language starting point.`,

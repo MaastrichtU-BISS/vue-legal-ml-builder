@@ -64,6 +64,8 @@ const overviewLabels = ref<string[] | null>(null)
 const labelCounts = ref<Record<string, number> | null>(null)
 // Every model fitted to the dataset, with why it cannot train it (getModelFit).
 const fit = ref<ModelFit | null>(null)
+// True while the server is still deciding which models the dataset can train.
+const fitPending = ref(false)
 
 const staticModels = computed<string[]>(() =>
   selectedDataset.value ? (modelsByTaskType[selectedDataset.value.task_type] || []) : [],
@@ -72,7 +74,9 @@ const staticModels = computed<string[]>(() =>
 const availableModels = computed<string[]>(() => {
   if (!selectedDataset.value) return []
   if (fit.value) return fittedModels.value.filter((t) => isUsable(t))
-  if (backendModels.value && backendModels.value.length) return backendModels.value
+  // A catalogue that names the task decides, even when it offers none; only an
+  // adapter without one (or a catalogue that leaves the task out) falls back.
+  if (backendModels.value) return backendModels.value
   return staticModels.value
 })
 // With a fit, the grid lists every model, usable first, so the rest can say why not.
@@ -87,8 +91,10 @@ const visibleModels = computed<string[]>(() =>
   !showAllModels.value && availableModels.value.includes(modelType.value) ? [modelType.value] : listedModels.value,
 )
 
+// Once the server has said which models fit, only those it marks usable are;
+// a model it leaves out is not one it can train.
 function isUsable(type: string) {
-  return !fit.value || fit.value.models[type]?.usable !== false
+  return !fit.value || fit.value.models[type]?.usable === true
 }
 
 function unusableReason(type: string) {
@@ -140,34 +146,57 @@ onMounted(async () => {
   }
 })
 
-async function loadBackendModels() {
+// Each request for the dataset's models gets a number; only the latest one's
+// answer, failure or cleanup counts, so switching datasets back and forth
+// cannot let an old answer unlock Create & train, erase a newer refusal, or
+// pick a default. Returns whether this call was still the latest when done.
+let fitRequest = 0
+
+async function loadBackendModels(): Promise<boolean> {
+  const request = ++fitRequest
   backendModels.value = null
   backendInfo.value = {}
   fit.value = null
+  fitPending.value = false
   const dataset = selectedDataset.value
-  if (adapter.value?.getModelFit && dataset) {
+  if (!dataset) return true
+  // Create & train waits for the fit, or for the catalogue that replaces it.
+  fitPending.value = Boolean(adapter.value?.getModelFit || adapter.value?.getAvailableModelTypes)
+  if (adapter.value?.getModelFit) {
+    let answer: ModelFit | null = null
     try {
-      const answer = await adapter.value.getModelFit(dataset.id)
-      if (selectedDataset.value !== dataset) return
+      answer = await adapter.value.getModelFit(dataset.id)
+    } catch {
+      answer = null // fall back to the task type's catalogue
+    }
+    if (request !== fitRequest) return false
+    if (answer) {
       fit.value = answer
       backendInfo.value = Object.fromEntries(
         Object.entries(answer.models).filter(([, m]) => m.usable),
       ) as Record<string, ModelTypeInfo>
-      return
-    } catch {
-      fit.value = null // fall back to the task type's catalogue
+      fitPending.value = false
+      // A choice made while the fit loaded may not be one the dataset can train.
+      ensureSelectionUsable()
+      return true
     }
   }
-  if (!adapter.value?.getAvailableModelTypes || !dataset) return
-  try {
-    const catalog = await adapter.value.getAvailableModelTypes(dataset.task_type)
-    if (selectedDataset.value !== dataset) return
-    backendInfo.value = catalog?.[dataset.task_type] ?? {}
-    const types = Object.keys(backendInfo.value)
-    backendModels.value = types.length ? types : null
-  } catch {
-    backendModels.value = null
+  if (adapter.value?.getAvailableModelTypes) {
+    try {
+      const catalog = await adapter.value.getAvailableModelTypes(dataset.task_type)
+      if (request !== fitRequest) return false
+      const offered = catalog?.[dataset.task_type]
+      backendInfo.value = offered ?? {}
+      backendModels.value = offered ? Object.keys(offered) : null
+    } catch {
+      if (request !== fitRequest) return false
+      backendModels.value = null
+    }
   }
+  fitPending.value = false
+  // Likewise for a choice made while the catalogue loaded.
+  ensureSelectionUsable()
+  return true
 }
 
 async function loadOverviewLabels() {
@@ -193,8 +222,9 @@ async function loadOverviewLabels() {
 async function prepareDataset() {
   const dataset = selectedDataset.value
   loadOverviewLabels()
-  await loadBackendModels()
-  // Not if the user picked a model, or another dataset, while the catalogue loaded.
+  // Not if a newer request took over, or the user picked a model, or another
+  // dataset, while the models loaded.
+  if (!(await loadBackendModels())) return
   if (selectedDataset.value !== dataset || modelType.value) return
   const type = defaultModelFor(availableModels.value)
   if (!type) return
@@ -211,8 +241,24 @@ function onDatasetChange() {
   prepareDataset()
 }
 
+// Once the fit or catalogue arrives, keep a selection only if it offers it
+// (and the fit can train it); otherwise replace it with the default model, or
+// clear it.
+function ensureSelectionUsable() {
+  if (!modelType.value || availableModels.value.includes(modelType.value)) return
+  const replacement = defaultModelFor(availableModels.value)
+  if (replacement) selectModelType(replacement)
+  else modelType.value = ''
+}
+
+// Only a model the dataset is offered can be chosen, by a click, the guide, or
+// a late overview re-applying the guide's pick.
+function isOffered(type: string) {
+  return availableModels.value.includes(type)
+}
+
 function selectModelType(type: string, preset?: Record<string, unknown>) {
-  if (!isUsable(type)) return
+  if (!isOffered(type)) return
   modelType.value = type
   expandedModelInfo.value = type
   initialParameters.value = { ...preset }
@@ -305,7 +351,7 @@ async function createModel() {
         </p>
         <p v-else class="vmlb-muted vmlb-indent">Available models for <strong>{{ taskLabel }}</strong> tasks.</p>
 
-        <div v-if="!showAllModels && hasGuide && !nothingFits" class="vmlb-chooser">
+        <div v-if="!showAllModels && hasGuide && !nothingFits && availableModels.length" class="vmlb-chooser">
           <ModelQuestionTree
             :task-type="selectedDataset.task_type"
             :current-model-type="modelType"
@@ -433,7 +479,7 @@ async function createModel() {
         <button
           type="button"
           class="vmlb-btn-primary"
-          :disabled="isCreating || !selectedDataset || !modelName.trim() || !modelType"
+          :disabled="isCreating || !selectedDataset || !modelName.trim() || !modelType || fitPending || !isOffered(modelType)"
           @click="createModel"
         >
           {{ isCreating ? 'Creating & starting training…' : 'Create & train' }}
