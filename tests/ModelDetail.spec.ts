@@ -106,3 +106,30 @@ describe('ModelDetail: summarization models', () => {
     expect(wrapper.find('.vmlb-summary').text()).toBe('The court dismissed the appeal.')
   })
 })
+
+describe('ModelDetail: classifiers', () => {
+  it('still fetches and draws the performance chart, and keeps the report with the confusion matrix', async () => {
+    const report = '              precision    recall  f1-score   support\n\n         yes       0.90      0.84      0.87        10'
+    const adapter = createTestAdapter({
+      getModel: vi.fn().mockResolvedValue(model({
+        model_type: 'svm',
+        metrics: {
+          accuracy: 0.9, f1_score: 0.88, classification_report: report,
+          confusion_matrix: [[5, 1], [0, 4]], confusion_matrix_labels: ['no', 'yes'],
+        },
+      })),
+      getModelPerformance: vi.fn().mockResolvedValue({ performance_chart: { data: [], layout: {} } }),
+    })
+    const wrapper = mount(ModelDetail, {
+      props: { adapter, modelId: 'm1' },
+      global: { stubs: { PlotlyChart } },
+    })
+    await flushPromises()
+
+    expect(adapter.getModelPerformance).toHaveBeenCalledWith('m1')
+    expect(wrapper.findComponent(PlotlyChart).exists()).toBe(true)
+    expect(wrapper.text()).toContain('Accuracy')
+    // The report names the matrix's labels; it is not repeated as its own card.
+    expect(wrapper.text()).not.toContain('Classification report')
+  })
+})

@@ -317,6 +317,19 @@ export const parameterRules: Record<string, ParameterRule[]> = {
   ],
 }
 
+/** The entity (NER) and summary model types: their scores and predictions
+ * are not a classifier's. */
+export const ENTITY_MODEL_TYPES = ['legalbert_ner', 'distilbert_ner']
+export const SUMMARY_MODEL_TYPES = ['t5_small']
+
+export function isEntityModelType(modelType: string | undefined | null): boolean {
+  return ENTITY_MODEL_TYPES.includes(modelType ?? '')
+}
+
+export function isSummaryModelType(modelType: string | undefined | null): boolean {
+  return SUMMARY_MODEL_TYPES.includes(modelType ?? '')
+}
+
 export function modelTypeLabel(modelType: string): string {
   return allModelInfo[modelType]?.label ?? modelType.replace(/_/g, ' ')
 }

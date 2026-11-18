@@ -132,7 +132,7 @@ function milestoneState(pct: number, index: number) {
     <!-- Completed -->
     <div v-else-if="model?.status === 'completed'" class="vmlb-card">
       <h3 class="vmlb-card-title">Training complete</h3>
-      <div v-if="model.metrics" class="vmlb-metrics-grid">
+      <div v-if="scores.length" class="vmlb-metrics-grid">
         <div v-for="score in scores" :key="score.key" class="vmlb-metric">
           <span class="vmlb-label">{{ score.label }}</span>
           <strong class="vmlb-num">{{ score.text }}</strong>

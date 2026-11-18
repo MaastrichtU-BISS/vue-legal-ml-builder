@@ -797,6 +797,53 @@ describe('ModelCreateWizard', () => {
       expect(wrapper.find('.vmlb-actions .vmlb-btn-primary').attributes('disabled')).toBeUndefined()
     })
 
+    it('treats a model the fit leaves out as one the dataset cannot train', async () => {
+      let resolveFit!: (answer: { models: Record<string, { usable: boolean; reason: string | null }>; advice: string | null }) => void
+      const getModelFit = vi.fn().mockReturnValue(new Promise((resolve) => { resolveFit = resolve }))
+      const adapter = createTestAdapter({ listDatasets: vi.fn().mockResolvedValue([dataset()]), getModelFit })
+      const wrapper = mount(ModelCreateWizard, { props: { adapter, datasetId: 'ds-1' } })
+      await flushPromises()
+
+      await card(wrapper, 'Support Vector Machine').trigger('click')
+      await wrapper.find('#vmlb-model-name').setValue('My model')
+      // The answer names only Naive Bayes: SVM is not one it can train.
+      resolveFit({ models: { naive_bayes: { usable: true, reason: null } }, advice: null })
+      await flushPromises()
+
+      expect(card(wrapper, 'Naive Bayes').classes()).toContain('vmlb-selected')
+    })
+
+    it('lets only the latest fit answer count when the dataset changes back and forth', async () => {
+      const pending: Array<(answer: unknown) => void> = []
+      const getModelFit = vi.fn().mockImplementation(() => new Promise((resolve) => { pending.push(resolve) }))
+      const adapter = createTestAdapter({
+        listDatasets: vi.fn().mockResolvedValue([dataset(), dataset({ id: 'ds-2', name: 'Second' })]),
+        getModelFit,
+      })
+      const wrapper = mount(ModelCreateWizard, { props: { adapter, datasetId: 'ds-1' } })
+      await flushPromises()
+      const select = wrapper.find('select')
+      const optionFor = (id: string) => select.findAll('option').find((o) => (o.element as HTMLOptionElement & { _value?: { id?: string } })._value?.id === id)!
+
+      // A (request 1) -> B (request 2) -> A (request 3).
+      await optionFor('ds-2').setSelected()
+      await flushPromises()
+      await optionFor('ds-1').setSelected()
+      await flushPromises()
+      expect(getModelFit).toHaveBeenCalledTimes(3)
+
+      // The first answer for A arrives while the latest request is still out.
+      pending[0]({ models: { svm: { usable: true, reason: null } }, advice: null })
+      await flushPromises()
+      expect(wrapper.find('.vmlb-actions .vmlb-btn-primary').attributes('disabled')).toBeDefined()
+
+      // B's refusal, then the latest answer: only the latest decides.
+      pending[1]({ models: { svm: { usable: false, reason: 'No rows.' } }, advice: null })
+      pending[2]({ models: { naive_bayes: { usable: true, reason: null } }, advice: null })
+      await flushPromises()
+      expect(card(wrapper, 'Naive Bayes').attributes('aria-disabled')).toBeUndefined()
+    })
+
     it('when no model fits, says why and what would make the dataset trainable', async () => {
       const adapter = createTestAdapter({
         listDatasets: vi.fn().mockResolvedValue([dataset()]),

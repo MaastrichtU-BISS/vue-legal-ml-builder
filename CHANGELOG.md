@@ -25,6 +25,19 @@ tagged `vX.Y.Z`.
   F1, with precision and recall, for entity models; and ROUGE-1, ROUGE-2 and
   ROUGE-L for summarization models. A score is never a blank or NaN. The
   parameter explorer offers the ROUGE scores too.
+- The model page shows an entity model's predictions as each entity with its
+  type ("No entities found" when there are none) and its per-entity report,
+  and a summarization model's prediction as the written summary; neither shows
+  the classifier performance chart.
+- `isEntityModelType`, `isSummaryModelType`, `ENTITY_MODEL_TYPES` and
+  `SUMMARY_MODEL_TYPES` are exported.
+
+### Fixed
+
+- The wizard no longer lets a model the dataset cannot train be created: a
+  model chosen while the fit was loading is replaced once the fit says it
+  cannot train it (or leaves it out), Create & train waits for the fit, and
+  only the latest fit request counts when the dataset changes.
 
 ## [0.11.0] - 2026-11-17
 

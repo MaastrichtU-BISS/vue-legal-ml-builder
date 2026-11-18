@@ -2,7 +2,7 @@
 import { computed, inject, ref, watch } from 'vue'
 import type { MLAdapter } from '../types'
 import { useParameterComparison } from '../composables/useParameterComparison'
-import { modelTypeLabel, parameterSchemas } from './modelCatalogData'
+import { isEntityModelType, isSummaryModelType, modelTypeLabel, parameterSchemas } from './modelCatalogData'
 import PlotlyChart from './shared/PlotlyChart.vue'
 import Icon from './shared/Icon.vue'
 
@@ -18,8 +18,8 @@ const selectedParam = ref(parameterKeys.value[0] ?? '')
 
 // The score each model family reports, so the explorer opens on one that exists.
 function defaultMetricFor(modelType: string): string {
-  if (modelType === 't5_small') return 'rouge1'
-  return modelType.endsWith('_ner') ? 'f1_score' : 'accuracy'
+  if (isSummaryModelType(modelType)) return 'rouge1'
+  return isEntityModelType(modelType) ? 'f1_score' : 'accuracy'
 }
 
 watch(() => props.modelType, (modelType) => {

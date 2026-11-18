@@ -201,7 +201,7 @@ export function lensCopy(modelType: string, parameters: Record<string, unknown>,
           { label: 'Attention', detail: `How strongly each word attends to the others` },
           { label: 'Span', detail: `A run of words the model labels as one entity` },
           { label: 'Fine-tuning', detail: `${Math.round(epochs)} passes at learning rate ${lr}` },
-          { label: 'Coarse curve', detail: `Only phase markers are logged, not per-step curves` },
+          { label: 'Training curve', detail: `Loss and scores are logged as training goes, step by step` },
         ],
       }
     }
@@ -213,7 +213,7 @@ export function lensCopy(modelType: string, parameters: Record<string, unknown>,
           { label: 'Reading', detail: `The part of each document the model takes in` },
           { label: 'Writing', detail: `Each word chosen from what it has read and written so far` },
           { label: 'Fine-tuning', detail: `${Math.round(epochs)} passes at learning rate ${lr}` },
-          { label: 'Coarse curve', detail: `Only phase markers are logged, not per-step curves` },
+          { label: 'Training curve', detail: `Loss and scores are logged as training goes, step by step` },
         ],
       }
     }

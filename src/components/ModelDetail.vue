@@ -2,7 +2,7 @@
 import { computed, inject, onMounted, ref } from 'vue'
 import type { MLAdapter, MlModel, PredictionResult } from '../types'
 import { scoreRows } from '../utils/metrics'
-import { modelTypeLabel } from './modelCatalogData'
+import { isEntityModelType, isSummaryModelType, modelTypeLabel } from './modelCatalogData'
 import ConfusionMatrix from './shared/ConfusionMatrix.vue'
 import PlotlyChart from './shared/PlotlyChart.vue'
 import Icon from './shared/Icon.vue'
@@ -27,11 +27,11 @@ const isPredicting = ref(false)
 const SCORE_KEYS = ['accuracy', 'precision', 'recall', 'f1_score', 'rouge1', 'rouge2', 'rougeL']
 const scores = computed(() => scoreRows(model.value?.metrics, SCORE_KEYS))
 
-const isEntityModel = computed(() => ['legalbert_ner', 'distilbert_ner'].includes(model.value?.model_type ?? ''))
-const isSummarizationModel = computed(() => model.value?.model_type === 't5_small')
+const isEntityModel = computed(() => isEntityModelType(model.value?.model_type))
+const isSummarizationModel = computed(() => isSummaryModelType(model.value?.model_type))
 // The performance endpoint fills missing classification metrics with zero, so
 // its chart would read a false 0% for entity and summarization models.
-const hasLegacyChart = (modelType: string) => !['legalbert_ner', 'distilbert_ner', 't5_small'].includes(modelType)
+const hasLegacyChart = (modelType: string) => !isEntityModelType(modelType) && !isSummaryModelType(modelType)
 
 const classificationReport = computed(() => {
   const value = model.value?.metrics?.classification_report
@@ -117,8 +117,10 @@ async function runPredict() {
           </div>
         </div>
 
-        <div v-if="classificationReport" class="vmlb-card">
-          <h3 class="vmlb-card-title">Classification report</h3>
+        <!-- A classifier's report already names the confusion matrix's labels;
+             shown on its own only where there is no matrix (entity models). -->
+        <div v-if="classificationReport && !(model.metrics as any)?.confusion_matrix" class="vmlb-card">
+          <h3 class="vmlb-card-title">{{ isEntityModel ? 'Per-entity report' : 'Classification report' }}</h3>
           <pre class="vmlb-report">{{ classificationReport }}</pre>
         </div>
 

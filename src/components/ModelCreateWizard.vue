@@ -89,8 +89,10 @@ const visibleModels = computed<string[]>(() =>
   !showAllModels.value && availableModels.value.includes(modelType.value) ? [modelType.value] : listedModels.value,
 )
 
+// Once the server has said which models fit, only those it marks usable are;
+// a model it leaves out is not one it can train.
 function isUsable(type: string) {
-  return !fit.value || fit.value.models[type]?.usable !== false
+  return !fit.value || fit.value.models[type]?.usable === true
 }
 
 function unusableReason(type: string) {
@@ -142,7 +144,13 @@ onMounted(async () => {
   }
 })
 
+// Each fit request gets a number; only the latest one's answer, failure or
+// cleanup counts, so switching datasets back and forth cannot let an old
+// answer unlock Create & train or erase a newer refusal.
+let fitRequest = 0
+
 async function loadBackendModels() {
+  const request = ++fitRequest
   backendModels.value = null
   backendInfo.value = {}
   fit.value = null
@@ -150,9 +158,15 @@ async function loadBackendModels() {
   const dataset = selectedDataset.value
   if (adapter.value?.getModelFit && dataset) {
     fitPending.value = true
+    let answer: ModelFit | null = null
     try {
-      const answer = await adapter.value.getModelFit(dataset.id)
-      if (selectedDataset.value !== dataset) return
+      answer = await adapter.value.getModelFit(dataset.id)
+    } catch {
+      answer = null // fall back to the task type's catalogue
+    }
+    if (request !== fitRequest) return
+    fitPending.value = false
+    if (answer) {
       fit.value = answer
       backendInfo.value = Object.fromEntries(
         Object.entries(answer.models).filter(([, m]) => m.usable),
@@ -160,23 +174,20 @@ async function loadBackendModels() {
       // A choice made while the fit loaded may not be one the dataset can train.
       ensureSelectionUsable()
       return
-    } catch {
-      fit.value = null // fall back to the task type's catalogue
-    } finally {
-      if (selectedDataset.value === dataset) fitPending.value = false
     }
   }
   if (!adapter.value?.getAvailableModelTypes || !dataset) return
   try {
     const catalog = await adapter.value.getAvailableModelTypes(dataset.task_type)
-    if (selectedDataset.value !== dataset) return
+    if (request !== fitRequest) return
     backendInfo.value = catalog?.[dataset.task_type] ?? {}
     const types = Object.keys(backendInfo.value)
     backendModels.value = types.length ? types : null
   } catch {
-    backendModels.value = null
+    if (request === fitRequest) backendModels.value = null
   }
 }
+
 
 async function loadOverviewLabels() {
   overviewLabels.value = null
