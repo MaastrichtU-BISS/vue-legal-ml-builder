@@ -12,9 +12,19 @@ const injectedAdapter = inject<MLAdapter | null>('vmlb:adapter', null)
 const adapter = computed(() => props.adapter ?? injectedAdapter)
 const { points, isLoading, error, load } = useParameterComparison(adapter.value as MLAdapter)
 
-const metric = ref(props.metric ?? 'accuracy')
+const metric = ref(props.metric ?? defaultMetricFor(props.modelType))
 const parameterKeys = computed(() => (parameterSchemas[props.modelType] || []).map((p) => p.key))
 const selectedParam = ref(parameterKeys.value[0] ?? '')
+
+// The score each model family reports, so the explorer opens on one that exists.
+function defaultMetricFor(modelType: string): string {
+  if (modelType === 't5_small') return 'rouge1'
+  return modelType.endsWith('_ner') ? 'f1_score' : 'accuracy'
+}
+
+watch(() => props.modelType, (modelType) => {
+  if (!props.metric) metric.value = defaultMetricFor(modelType)
+})
 
 async function refresh() {
   await load(props.modelType, metric.value)
@@ -68,6 +78,9 @@ const paramExplanation = computed(() => {
             <option value="precision">precision</option>
             <option value="recall">recall</option>
             <option value="f1_score">f1_score</option>
+            <option value="rouge1">rouge1</option>
+            <option value="rouge2">rouge2</option>
+            <option value="rougeL">rougeL</option>
           </select>
         </label>
       </div>

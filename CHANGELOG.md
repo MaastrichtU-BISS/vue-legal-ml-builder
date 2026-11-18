@@ -11,6 +11,18 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-18
+
+### Added
+
+- **The wizard offers the NER and summarization models** (BAIGLE #14):
+  `legalbert_ner` and `distilbert_ner` for an NER Dataset, and `t5_small` for a
+  summarization Dataset. Each has a catalogue entry, a plain-language guide and
+  a parameter form whose keys, ranges and defaults match legal-ml-core's.
+- Model lists, the model page and the training monitor show F1 for entity
+  models and ROUGE-1, ROUGE-2 and ROUGE-L for summarization models, so a score
+  is never a blank or NaN. The parameter explorer offers the ROUGE scores too.
+
 ## [0.11.0] - 2026-11-17
 
 ### Added
@@ -484,7 +496,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.9.0...v0.10.0

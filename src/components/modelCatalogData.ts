@@ -9,10 +9,9 @@ export const modelsByTaskType: Record<string, string[]> = {
   judgment_prediction: ['decision_tree', 'logistic_regression', 'naive_bayes', 'random_forest', 'svm', 'legalbert', 'roberta'],
   clustering: ['kmeans', 'hierarchical', 'dbscan'],
   topic_modeling: ['lda', 'nmf'],
-  // The backend cannot train these task types yet, so they offer no Model.
-  ner: [],
-  named_entity_recognition: [],
-  summarization: [],
+  ner: ['legalbert_ner', 'distilbert_ner'],
+  named_entity_recognition: ['legalbert_ner', 'distilbert_ner'],
+  summarization: ['t5_small'],
 }
 
 /** The model a no-code user starts from: Logistic Regression where it applies,
@@ -36,6 +35,18 @@ export const quickGuides: Record<string, Array<{ q: string; a: string }>> = {
   topic_modeling: [
     { q: 'Standard topic discovery?', a: 'LDA' },
     { q: 'Sharper topic boundaries?', a: 'NMF' },
+  ],
+  ner: [
+    { q: 'What does it learn?', a: 'To mark the names, dates and amounts it finds in your examples' },
+    { q: 'Want the most entities found?', a: 'LegalBERT (entities) — slower, often an hour or more on a CPU for a few thousand rows' },
+    { q: 'Want a quick result on an ordinary computer?', a: 'DistilBERT (entities) — a few minutes on a CPU for a few thousand rows' },
+    { q: 'What does the score mean?', a: 'Entity F1: the share of entities it finds exactly right, counting both missed and wrongly added ones' },
+  ],
+  summarization: [
+    { q: 'What does it learn?', a: 'To write summaries in the style of the examples you give it' },
+    { q: 'Short documents?', a: 'T5 small (summaries) with the default reading length — a few minutes on a CPU for a few thousand rows' },
+    { q: 'Long documents, such as full judgments?', a: 'T5 small (summaries) with a longer reading length — still minutes, a little longer' },
+    { q: 'What does the score mean?', a: 'ROUGE: how much of the words in your reference summaries the written summary overlaps' },
   ],
 }
 
@@ -145,6 +156,30 @@ export const allModelInfo: Record<string, ModelInfo> = {
     strengths: ['State-of-the-art general NLP performance', 'Robust training procedure', 'Strong zero-shot capability'],
     bestFor: 'General legal text tasks, cross-domain transfer, when labelled data is limited',
   },
+  legalbert_ner: {
+    label: 'LegalBERT (entities)',
+    shortDesc: 'LegalBERT fine-tuned to find named entities',
+    whenToUse: 'Best when finding entities accurately matters more than training quickly',
+    example: '"Find every party, date and amount named in a lease."',
+    strengths: ['Has already read a lot of legal text', 'Finds entities even when the wording is unusual', 'The more accurate of the two entity models'],
+    bestFor: 'Careful review of names, dates and amounts across a legal document set',
+  },
+  distilbert_ner: {
+    label: 'DistilBERT (entities)',
+    shortDesc: 'A small, fast BERT fine-tuned to find named entities',
+    whenToUse: 'Best when you want to try entity training quickly on an ordinary computer',
+    example: '"Tag the people and organisations named in 2,000 contracts in a few minutes."',
+    strengths: ['Fast to train', 'Needs less memory than LegalBERT', 'Finds most entities in ordinary legal text'],
+    bestFor: 'Quick entity tagging, first experiments, large document sets',
+  },
+  t5_small: {
+    label: 'T5 small (summaries)',
+    shortDesc: 'A small text-to-text model fine-tuned to write summaries',
+    whenToUse: 'Best when you have example documents paired with their summaries',
+    example: '"Write a three-sentence summary of each judgment."',
+    strengths: ['Writes summaries in its own words rather than copying', 'Small enough to train on an ordinary computer', 'Learns the style of your example summaries'],
+    bestFor: 'Summarising judgments, contracts and long legal documents',
+  },
 }
 
 export interface ParameterFieldSchema {
@@ -244,6 +279,28 @@ export const parameterSchemas: Record<string, ParameterFieldSchema[]> = {
     { key: 'batch_size', label: 'Batch Size', shortDesc: 'Documents processed per training step', type: 'number', default: 16, step: 4, min: 4, max: 32, explanation: 'Larger batches train faster but require more GPU memory.', recommendation: '16 is standard. Reduce to 8 if memory-constrained.' },
     { key: 'epochs', label: 'Training Epochs', shortDesc: 'Full passes over training data', type: 'number', default: 3, step: 1, min: 1, max: 10, explanation: 'How many times the model sees the full training set.', recommendation: '3 is standard. Increase to 5 for small datasets.' },
   ],
+  legalbert_ner: [
+    { key: 'model_name', label: 'Variant', shortDesc: 'Which LegalBERT model to start from', type: 'select', default: 'nlpaueb/legal-bert-base-uncased', options: ['nlpaueb/legal-bert-base-uncased'], explanation: 'The pre-trained model that training starts from.', recommendation: 'Keep the default.' },
+    MAX_LENGTH,
+    { key: 'learning_rate', label: 'Learning Rate', shortDesc: 'How fast the model adapts to your data', type: 'number', default: 5e-5, step: 1e-5, min: 1e-6, max: 0.01, explanation: 'Controls how much the model changes with each training step. Too high = unstable training. Too low = very slow learning.', recommendation: '5e-5 is a good starting point for finding entities.' },
+    { key: 'batch_size', label: 'Batch Size', shortDesc: 'Documents processed together per training step', type: 'number', default: 8, step: 4, min: 4, max: 32, explanation: 'Larger batches train faster but need more memory. Smaller batches need less memory but are noisier.', recommendation: '8 for most computers. Use 4 if you run out of memory.' },
+    { key: 'epochs', label: 'Training Epochs', shortDesc: 'How many times to train on the full dataset', type: 'number', default: 3, step: 1, min: 1, max: 10, explanation: 'Number of complete passes through the training data. More epochs = more training but a risk of memorising the examples.', recommendation: '3 epochs is a good starting point. Use 5 if it misses many entities.' },
+  ],
+  distilbert_ner: [
+    { key: 'model_name', label: 'Variant', shortDesc: 'Which DistilBERT model to start from', type: 'select', default: 'distilbert-base-cased', options: ['distilbert-base-cased'], explanation: 'The pre-trained model that training starts from.', recommendation: 'Keep the default.' },
+    MAX_LENGTH,
+    { key: 'learning_rate', label: 'Learning Rate', shortDesc: 'How fast the model adapts to your data', type: 'number', default: 5e-5, step: 1e-5, min: 1e-6, max: 0.01, explanation: 'Controls how much the model changes with each training step. Too high = unstable training. Too low = very slow learning.', recommendation: '5e-5 is a good starting point for finding entities.' },
+    { key: 'batch_size', label: 'Batch Size', shortDesc: 'Documents processed together per training step', type: 'number', default: 8, step: 4, min: 4, max: 32, explanation: 'Larger batches train faster but need more memory. Smaller batches need less memory but are noisier.', recommendation: '8 for most computers. Use 4 if you run out of memory.' },
+    { key: 'epochs', label: 'Training Epochs', shortDesc: 'How many times to train on the full dataset', type: 'number', default: 3, step: 1, min: 1, max: 10, explanation: 'Number of complete passes through the training data. More epochs = more training but a risk of memorising the examples.', recommendation: '3 epochs is a good starting point. Use 5 if it misses many entities.' },
+  ],
+  t5_small: [
+    { key: 'model_name', label: 'Variant', shortDesc: 'Which T5 model to start from', type: 'select', default: 't5-small', options: ['t5-small'], explanation: 'The pre-trained model that training starts from.', recommendation: 'Keep the default.' },
+    { key: 'max_source_length', label: 'Maximum Document Length', shortDesc: 'How much of each document the model reads', type: 'number', default: 512, step: 64, min: 128, max: 1024, explanation: 'Longer documents are cut off at this length. Longer limits read more but train more slowly.', recommendation: '512 suits most documents. Use 1024 for long judgments if training time allows.' },
+    { key: 'max_target_length', label: 'Maximum Summary Length', shortDesc: 'How long the written summary can be', type: 'number', default: 128, step: 32, min: 32, max: 256, explanation: 'The longest summary the model can write, counted in word pieces. Longer summaries take more time to learn.', recommendation: '128 is enough for a few sentences. Use 256 for longer summaries.' },
+    { key: 'learning_rate', label: 'Learning Rate', shortDesc: 'How fast the model adapts to your data', type: 'number', default: 3e-4, step: 1e-5, min: 1e-6, max: 0.01, explanation: 'Controls how much the model changes with each training step. Too high = unstable training. Too low = very slow learning.', recommendation: '3e-4 is the usual starting point for T5.' },
+    { key: 'batch_size', label: 'Batch Size', shortDesc: 'Documents processed together per training step', type: 'number', default: 8, step: 2, min: 2, max: 16, explanation: 'Larger batches train faster but need more memory. Smaller batches need less memory but are noisier.', recommendation: '8 for most computers. Use 2 or 4 if you run out of memory.' },
+    { key: 'epochs', label: 'Training Epochs', shortDesc: 'How many times to train on the full dataset', type: 'number', default: 3, step: 1, min: 1, max: 10, explanation: 'Number of complete passes through the training data. More epochs = more training but a risk of memorising the examples.', recommendation: '3 epochs is a good starting point. Use 5 for a small set of examples.' },
+  ],
 }
 
 /** The dependent options, for when the backend does not send its own. */
@@ -258,6 +315,10 @@ export const parameterRules: Record<string, ParameterRule[]> = {
   hierarchical: [
     { when: { linkage: 'ward' }, parameter: 'affinity', options: ['euclidean', 'l2'], reason: 'Ward linkage needs euclidean or l2 distance.' },
   ],
+}
+
+export function modelTypeLabel(modelType: string): string {
+  return allModelInfo[modelType]?.label ?? modelType.replace(/_/g, ' ')
 }
 
 export function taskTypeLabel(taskType: string): string {
@@ -278,5 +339,7 @@ export function quickGuideFor(taskType: string): Array<{ q: string; a: string }>
   if (['classification', 'document_classification', 'judgment_prediction'].includes(taskType)) return quickGuides.classification
   if (taskType === 'clustering') return quickGuides.clustering
   if (taskType === 'topic_modeling') return quickGuides.topic_modeling
+  if (['ner', 'named_entity_recognition'].includes(taskType)) return quickGuides.ner
+  if (taskType === 'summarization') return quickGuides.summarization
   return null
 }

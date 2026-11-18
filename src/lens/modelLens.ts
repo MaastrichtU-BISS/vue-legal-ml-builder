@@ -13,6 +13,9 @@ const FAMILY_BY_TYPE: Record<string, LensFamily> = {
   nmf: 'topic',
   legalbert: 'transformer',
   roberta: 'transformer',
+  legalbert_ner: 'transformer',
+  distilbert_ner: 'transformer',
+  t5_small: 'transformer',
 }
 
 export function lensFamily(modelType: string): LensFamily {

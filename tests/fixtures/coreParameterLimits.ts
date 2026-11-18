@@ -17,4 +17,7 @@ export const coreParameterLimits: Record<string, Record<string, CoreLimit>> = {
   nmf: { n_components: { min: 2, max: 50 }, max_iter: { min: 100, max: 2000 }, alpha: { min: 0, max: 1 }, random_state: { min: 0, max: 1000 } },
   legalbert: { max_length: { min: 128, max: 512 }, learning_rate: { min: 1e-6, max: 0.01 }, batch_size: { min: 4, max: 32 }, epochs: { min: 1, max: 10 } },
   roberta: { max_length: { min: 128, max: 512 }, learning_rate: { min: 1e-6, max: 0.01 }, batch_size: { min: 4, max: 32 }, epochs: { min: 1, max: 10 } },
+  legalbert_ner: { max_length: { min: 128, max: 512 }, learning_rate: { min: 1e-6, max: 0.01 }, batch_size: { min: 4, max: 32 }, epochs: { min: 1, max: 10 } },
+  distilbert_ner: { max_length: { min: 128, max: 512 }, learning_rate: { min: 1e-6, max: 0.01 }, batch_size: { min: 4, max: 32 }, epochs: { min: 1, max: 10 } },
+  t5_small: { max_source_length: { min: 128, max: 1024 }, max_target_length: { min: 32, max: 256 }, learning_rate: { min: 1e-6, max: 0.01 }, batch_size: { min: 2, max: 16 }, epochs: { min: 1, max: 10 } },
 }

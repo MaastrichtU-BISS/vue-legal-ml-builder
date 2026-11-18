@@ -90,10 +90,39 @@ const TOPIC: DecisionTree = {
   },
 }
 
+const ENTITIES: DecisionTree = {
+  root: 'goal',
+  nodes: {
+    goal: {
+      question: 'What matters most when finding entities?',
+      help: 'Both models look for names, dates and amounts in your documents.',
+      options: [
+        { label: 'Finding every entity, even with unusual wording', recommend: 'legalbert_ner', note: 'it has read a great deal of legal text, so it recognises names and terms it has not seen in your examples' },
+        { label: 'Getting an answer quickly on an ordinary computer', recommend: 'distilbert_ner', note: 'it is smaller and faster to train, and still finds most entities' },
+      ],
+    },
+  },
+}
+
+const SUMMARIES: DecisionTree = {
+  root: 'length',
+  nodes: {
+    length: {
+      question: 'How long are the documents you want summarised?',
+      options: [
+        { label: 'Short documents, a few paragraphs', recommend: 't5_small', note: 'it can read all of a short document and write a few sentences about it' },
+        { label: 'Long documents, such as full judgments', recommend: 't5_small', note: 'it reads more of each document before writing, so it can cover the important parts of a long text', settings: { parameters: { max_source_length: 1024 }, why: 'it reads up to 1024 word pieces of each document rather than 512, which takes longer but reaches the end of a long judgment' } },
+      ],
+    },
+  },
+}
+
 export function decisionTreeFor(taskType: string): DecisionTree | null {
   if (['classification', 'document_classification', 'judgment_prediction'].includes(taskType)) return CLASSIFICATION
   if (taskType === 'clustering') return CLUSTERING
   if (taskType === 'topic_modeling') return TOPIC
+  if (['ner', 'named_entity_recognition'].includes(taskType)) return ENTITIES
+  if (taskType === 'summarization') return SUMMARIES
   return null
 }
 
@@ -123,8 +152,8 @@ export interface GuideAdvice {
  * in advance to learn from. */
 export const SMALL_DATASET_ROWS = 1000
 // Models that need a lot of documents, and what to steer to instead, in order.
-const NEEDS_MANY_DOCUMENTS = ['legalbert', 'roberta']
-const FOR_FEWER_DOCUMENTS = ['random_forest', 'logistic_regression', 'svm', 'decision_tree', 'naive_bayes']
+const NEEDS_MANY_DOCUMENTS = ['legalbert', 'roberta', 'legalbert_ner']
+const FOR_FEWER_DOCUMENTS = ['random_forest', 'logistic_regression', 'svm', 'decision_tree', 'naive_bayes', 'distilbert_ner']
 
 /** The most common label at least this many times the rarest counts as imbalanced. */
 export const IMBALANCE_RATIO = 3

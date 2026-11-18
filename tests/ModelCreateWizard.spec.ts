@@ -102,13 +102,56 @@ describe('ModelCreateWizard', () => {
   })
 
   it('says plainly when the task type has no Model to train yet', async () => {
+    const adapter = createTestAdapter({ listDatasets: vi.fn().mockResolvedValue([dataset({ task_type: 'regression' })]) })
+    const wrapper = mount(ModelCreateWizard, { props: { adapter, datasetId: 'ds-1' } })
+    await flushPromises()
+
+    expect(wrapper.find('.vmlb-no-models').text()).toBe('A Model cannot be trained for regression yet. Choose a Dataset with another task type.')
+    expect(wrapper.find('.vmlb-model-card').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Configure model')
+  })
+
+  it('offers the NER models for a named-entity Dataset', async () => {
     const adapter = createTestAdapter({ listDatasets: vi.fn().mockResolvedValue([dataset({ task_type: 'ner' })]) })
     const wrapper = mount(ModelCreateWizard, { props: { adapter, datasetId: 'ds-1' } })
     await flushPromises()
 
-    expect(wrapper.find('.vmlb-no-models').text()).toBe('A Model cannot be trained for named entity recognition yet. Choose a Dataset with another task type.')
-    expect(wrapper.find('.vmlb-model-card').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('Configure model')
+    expect(wrapper.find('.vmlb-model-card.vmlb-selected').text()).toContain('LegalBERT (entities)')
+    await wrapper.find('.vmlb-show-models').trigger('click')
+
+    expect(wrapper.findAll('.vmlb-model-card').map((c) => c.find('h3').text())).toEqual([
+      'LegalBERT (entities)',
+      'DistilBERT (entities)',
+    ])
+  })
+
+  it('offers t5_small for a summarization Dataset', async () => {
+    const adapter = createTestAdapter({ listDatasets: vi.fn().mockResolvedValue([dataset({ task_type: 'summarization' })]) })
+    const wrapper = mount(ModelCreateWizard, { props: { adapter, datasetId: 'ds-1' } })
+    await flushPromises()
+
+    expect(wrapper.findAll('.vmlb-model-card').map((c) => c.find('h3').text())).toEqual(['T5 small (summaries)'])
+    expect(wrapper.find('.vmlb-model-card.vmlb-selected').text()).toContain('T5 small (summaries)')
+  })
+
+  it('keeps the new model types the server lists instead of filtering them out', async () => {
+    const adapter = createTestAdapter({
+      listDatasets: vi.fn().mockResolvedValue([dataset({ task_type: 'ner' })]),
+      getAvailableModelTypes: vi.fn().mockResolvedValue({
+        ner: {
+          legalbert_ner: { name: 'LegalBERT (entities)', description: '', parameters: {} },
+          distilbert_ner: { name: 'DistilBERT (entities)', description: '', parameters: {} },
+        },
+      }),
+    })
+    const wrapper = mount(ModelCreateWizard, { props: { adapter, datasetId: 'ds-1' } })
+    await flushPromises()
+    await wrapper.find('.vmlb-show-models').trigger('click')
+
+    expect(wrapper.findAll('.vmlb-model-card').map((c) => c.find('h3').text())).toEqual([
+      'LegalBERT (entities)',
+      'DistilBERT (entities)',
+    ])
   })
 
   it('populates default parameters when a model type is selected', async () => {

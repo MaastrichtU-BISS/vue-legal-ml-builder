@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, inject, onMounted, ref } from 'vue'
 import type { MLAdapter, MlModel, PredictionResult } from '../types'
+import { numericMetric } from '../utils/metrics'
+import { modelTypeLabel } from './modelCatalogData'
 import ConfusionMatrix from './shared/ConfusionMatrix.vue'
 import PlotlyChart from './shared/PlotlyChart.vue'
 import Icon from './shared/Icon.vue'
@@ -19,6 +21,24 @@ const error = ref('')
 const predictText = ref('')
 const predictResults = ref<PredictionResult[]>([])
 const isPredicting = ref(false)
+
+// Classification reports accuracy, NER reports F1, and summarization reports
+// ROUGE; whichever the model has are shown, never a blank or NaN.
+const SCORE_LABELS = [
+  { key: 'accuracy', label: 'Accuracy' },
+  { key: 'precision', label: 'Precision' },
+  { key: 'recall', label: 'Recall' },
+  { key: 'f1_score', label: 'F1' },
+  { key: 'rouge1', label: 'ROUGE-1' },
+  { key: 'rouge2', label: 'ROUGE-2' },
+  { key: 'rougeL', label: 'ROUGE-L' },
+]
+const scores = computed(() =>
+  SCORE_LABELS.flatMap(({ key, label }) => {
+    const value = numericMetric(model.value?.metrics, key)
+    return value === undefined ? [] : [{ key, label, text: `${(value * 100).toFixed(2)}%` }]
+  }),
+)
 
 onMounted(async () => {
   if (!adapter.value) {
@@ -71,7 +91,7 @@ async function runPredict() {
       <header class="vmlb-header">
         <div>
           <h2 class="vmlb-display">{{ model.name }}</h2>
-          <p class="vmlb-muted vmlb-capitalize">{{ model.model_type.replace(/_/g, ' ') }} · {{ model.status }}</p>
+          <p class="vmlb-muted vmlb-capitalize">{{ modelTypeLabel(model.model_type) }} · {{ model.status }}</p>
         </div>
         <button v-if="model.status === 'pending'" class="vmlb-btn-primary" @click="emit('train')">
           <Icon name="play" /> Train
@@ -81,6 +101,16 @@ async function runPredict() {
       <div v-if="model.status === 'completed'">
         <div v-if="performanceChart" class="vmlb-card">
           <PlotlyChart :plot-data="performanceChart" plot-id="vmlb-model-performance" />
+        </div>
+
+        <div v-if="scores.length" class="vmlb-card">
+          <h3 class="vmlb-card-title">Scores</h3>
+          <div class="vmlb-detail-scores">
+            <div v-for="score in scores" :key="score.key" class="vmlb-row">
+              <span class="vmlb-muted">{{ score.label }}</span>
+              <span class="vmlb-num">{{ score.text }}</span>
+            </div>
+          </div>
         </div>
 
         <div v-if="(model.metrics as any)?.confusion_matrix" class="vmlb-card">
@@ -126,6 +156,7 @@ async function runPredict() {
 .vmlb-header .vmlb-muted { margin: 0; }
 .vmlb-card { margin-bottom: 1.25rem; }
 .vmlb-card-title { margin-top: 0; }
+.vmlb-detail-scores { max-width: 24rem; }
 .vmlb-card .vmlb-card-title + textarea,
 .vmlb-card textarea {
   width: 100%; box-sizing: border-box;

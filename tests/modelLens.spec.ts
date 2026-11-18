@@ -18,6 +18,9 @@ describe('lensFamily', () => {
     expect(lensFamily('nmf')).toBe('topic')
     expect(lensFamily('legalbert')).toBe('transformer')
     expect(lensFamily('roberta')).toBe('transformer')
+    expect(lensFamily('legalbert_ner')).toBe('transformer')
+    expect(lensFamily('distilbert_ner')).toBe('transformer')
+    expect(lensFamily('t5_small')).toBe('transformer')
   })
 
   it('falls back to linear for an unknown type', () => {
@@ -118,11 +121,18 @@ describe('decisionTreeFor', () => {
     }
   })
 
-  it('offers no Model, and no guide, for a task type the backend cannot train yet', () => {
-    for (const task of ['ner', 'named_entity_recognition', 'summarization']) {
-      expect(modelsByTaskType[task] ?? []).toEqual([])
-      expect(decisionTreeFor(task)).toBeNull()
+  it('offers the entity and summary Models, each with a guide', () => {
+    for (const task of ['ner', 'named_entity_recognition']) {
+      expect(modelsByTaskType[task]).toEqual(['legalbert_ner', 'distilbert_ner'])
+      expect(decisionTreeFor(task)).not.toBeNull()
     }
+    expect(modelsByTaskType.summarization).toEqual(['t5_small'])
+    expect(decisionTreeFor('summarization')).not.toBeNull()
+  })
+
+  it('offers no Model, and no guide, for a task type the backend cannot train yet', () => {
+    expect(modelsByTaskType.regression ?? []).toEqual([])
+    expect(decisionTreeFor('regression')).toBeNull()
   })
 
   it('asks and answers in plain words, with no algorithm terms or things a user cannot know', () => {
