@@ -69,6 +69,22 @@ describe('adviseFor', () => {
     expect(adviseFor(best, { rowCount: 300 }, { available: ['logistic_regression', 'legalbert'] }).modelType).toBe('logistic_regression')
     expect(adviseFor(best, { rowCount: 300 }, { available: ['legalbert'] }).modelType).toBe('legalbert')
   })
+
+  it('steers a small entity Dataset to DistilBERT, never to a classifier', () => {
+    const best = optionFor('ner', 'Finding every entity, even with unusual wording')
+    const available = ['legalbert_ner', 'distilbert_ner']
+    const advised = adviseFor(best, { rowCount: 300 }, { available })
+    expect(advised.modelType).toBe('distilbert_ner')
+    expect(advised.why).toContain('faster and lighter')
+    expect(advised.why).not.toContain('gets good results from fewer')
+    expect(adviseFor(best, { rowCount: 300 }).modelType).toBe('distilbert_ner')
+  })
+
+  it('keeps steering a small classification Dataset as before', () => {
+    const best = optionFor('classification', 'The best results, even if training takes much longer')
+    expect(adviseFor(best, { rowCount: 300 }).modelType).toBe('random_forest')
+    expect(adviseFor(best, { rowCount: 300 }).why).toContain('gets good results from fewer')
+  })
 })
 
 describe('every guide recommendation', () => {

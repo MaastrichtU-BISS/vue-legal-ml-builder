@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, onMounted, ref } from 'vue'
 import type { MLAdapter, MlModel, PredictionResult } from '../types'
-import { numericMetric } from '../utils/metrics'
+import { scoreRows } from '../utils/metrics'
 import { modelTypeLabel } from './modelCatalogData'
 import ConfusionMatrix from './shared/ConfusionMatrix.vue'
 import PlotlyChart from './shared/PlotlyChart.vue'
@@ -24,21 +24,25 @@ const isPredicting = ref(false)
 
 // Classification reports accuracy, NER reports F1, and summarization reports
 // ROUGE; whichever the model has are shown, never a blank or NaN.
-const SCORE_LABELS = [
-  { key: 'accuracy', label: 'Accuracy' },
-  { key: 'precision', label: 'Precision' },
-  { key: 'recall', label: 'Recall' },
-  { key: 'f1_score', label: 'F1' },
-  { key: 'rouge1', label: 'ROUGE-1' },
-  { key: 'rouge2', label: 'ROUGE-2' },
-  { key: 'rougeL', label: 'ROUGE-L' },
-]
-const scores = computed(() =>
-  SCORE_LABELS.flatMap(({ key, label }) => {
-    const value = numericMetric(model.value?.metrics, key)
-    return value === undefined ? [] : [{ key, label, text: `${(value * 100).toFixed(2)}%` }]
-  }),
-)
+const SCORE_KEYS = ['accuracy', 'precision', 'recall', 'f1_score', 'rouge1', 'rouge2', 'rougeL']
+const scores = computed(() => scoreRows(model.value?.metrics, SCORE_KEYS))
+
+const isEntityModel = computed(() => ['legalbert_ner', 'distilbert_ner'].includes(model.value?.model_type ?? ''))
+const isSummarizationModel = computed(() => model.value?.model_type === 't5_small')
+// The performance endpoint fills missing classification metrics with zero, so
+// its chart would read a false 0% for entity and summarization models.
+const hasLegacyChart = (modelType: string) => !['legalbert_ner', 'distilbert_ner', 't5_small'].includes(modelType)
+
+const classificationReport = computed(() => {
+  const value = model.value?.metrics?.classification_report
+  return typeof value === 'string' && value.trim() ? value : null
+})
+
+const predictPlaceholder = computed(() => {
+  if (isEntityModel.value) return 'Paste text to find entities in…'
+  if (isSummarizationModel.value) return 'Paste a document to summarise…'
+  return 'Paste a clause to classify…'
+})
 
 onMounted(async () => {
   if (!adapter.value) {
@@ -48,7 +52,7 @@ onMounted(async () => {
   }
   try {
     model.value = await adapter.value.getModel(props.modelId)
-    if (model.value.status === 'completed') {
+    if (model.value.status === 'completed' && hasLegacyChart(model.value.model_type)) {
       try {
         const perf = await adapter.value.getModelPerformance(props.modelId)
         performanceChart.value = perf.performance_chart
@@ -91,7 +95,7 @@ async function runPredict() {
       <header class="vmlb-header">
         <div>
           <h2 class="vmlb-display">{{ model.name }}</h2>
-          <p class="vmlb-muted vmlb-capitalize">{{ modelTypeLabel(model.model_type) }} · {{ model.status }}</p>
+          <p class="vmlb-muted">{{ modelTypeLabel(model.model_type) }} · {{ model.status }}</p>
         </div>
         <button v-if="model.status === 'pending'" class="vmlb-btn-primary" @click="emit('train')">
           <Icon name="play" /> Train
@@ -99,7 +103,7 @@ async function runPredict() {
       </header>
 
       <div v-if="model.status === 'completed'">
-        <div v-if="performanceChart" class="vmlb-card">
+        <div v-if="performanceChart && hasLegacyChart(model.model_type)" class="vmlb-card">
           <PlotlyChart :plot-data="performanceChart" plot-id="vmlb-model-performance" />
         </div>
 
@@ -113,27 +117,45 @@ async function runPredict() {
           </div>
         </div>
 
+        <div v-if="classificationReport" class="vmlb-card">
+          <h3 class="vmlb-card-title">Classification report</h3>
+          <pre class="vmlb-report">{{ classificationReport }}</pre>
+        </div>
+
         <div v-if="(model.metrics as any)?.confusion_matrix" class="vmlb-card">
           <ConfusionMatrix
             :matrix="(model.metrics as any).confusion_matrix"
             :labels="(model.metrics as any).confusion_matrix_labels ?? null"
-            :classification-report="(model.metrics as any).classification_report ?? null"
+            :classification-report="classificationReport"
           />
         </div>
 
         <div class="vmlb-card">
           <h3 class="vmlb-card-title">Try a prediction</h3>
-          <textarea v-model="predictText" rows="3" placeholder="Paste a clause to classify…" />
+          <textarea v-model="predictText" rows="3" :placeholder="predictPlaceholder" />
           <button class="vmlb-btn-primary" :disabled="isPredicting || !predictText.trim()" @click="runPredict">
             {{ isPredicting ? 'Predicting…' : 'Predict' }}
           </button>
 
           <div v-if="predictResults.length" class="vmlb-predictions">
             <div v-for="(r, i) in predictResults" :key="i" class="vmlb-prediction">
-              <strong>{{ r.prediction }}</strong>
-              <span v-if="r.confidence !== undefined" class="vmlb-muted vmlb-num">
-                {{ (r.confidence * 100).toFixed(1) }}% confidence
-              </span>
+              <template v-if="isEntityModel">
+                <div v-if="r.entities?.length" class="vmlb-entities">
+                  <span v-for="(entity, j) in r.entities" :key="j" class="vmlb-entity-chip">
+                    <span class="vmlb-entity-text">{{ entity.text }}</span>
+                    <span class="vmlb-entity-type">{{ entity.type }}</span>
+                  </span>
+                </div>
+                <p v-else-if="r.entities" class="vmlb-muted">No entities found</p>
+                <strong v-else>{{ r.prediction }}</strong>
+              </template>
+              <p v-else-if="isSummarizationModel" class="vmlb-summary">{{ r.prediction }}</p>
+              <template v-else>
+                <strong>{{ r.prediction }}</strong>
+                <span v-if="r.confidence !== undefined" class="vmlb-muted vmlb-num">
+                  {{ (r.confidence * 100).toFixed(1) }}% confidence
+                </span>
+              </template>
             </div>
           </div>
         </div>
@@ -166,7 +188,26 @@ async function runPredict() {
   margin-bottom: 0.75rem; resize: vertical;
 }
 .vmlb-card textarea:focus { outline: none; border-color: var(--vmlb-accent); box-shadow: 0 0 0 3px var(--vmlb-accent-soft); }
+.vmlb-report {
+  margin: 0; padding: 0.75rem 1rem; overflow-x: auto;
+  background: var(--vmlb-surface-sunken); border-radius: var(--vmlb-radius-sm);
+  font-family: var(--vmlb-font-mono, monospace); font-size: var(--vmlb-font-size-xs);
+  color: var(--vmlb-text); white-space: pre;
+}
 .vmlb-predictions { margin-top: 1rem; border-top: 1px solid var(--vmlb-border); padding-top: 1rem; }
 .vmlb-prediction { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0.375rem 0; }
+.vmlb-entities { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+.vmlb-entity-chip {
+  display: inline-flex; align-items: baseline; gap: 0.35rem;
+  padding: 0.125rem 0.5rem; border-radius: var(--vmlb-radius-sm);
+  background: var(--vmlb-accent-soft); color: var(--vmlb-text);
+  font-size: var(--vmlb-font-size-sm);
+}
+.vmlb-entity-type {
+  font-size: var(--vmlb-font-size-2xs); font-weight: 600;
+  letter-spacing: var(--vmlb-label-tracking); text-transform: var(--vmlb-label-case);
+  color: var(--vmlb-accent-strong);
+}
+.vmlb-summary { margin: 0; line-height: 1.55; white-space: pre-wrap; }
 .vmlb-capitalize { text-transform: capitalize; }
 </style>

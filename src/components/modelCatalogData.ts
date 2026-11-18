@@ -38,15 +38,15 @@ export const quickGuides: Record<string, Array<{ q: string; a: string }>> = {
   ],
   ner: [
     { q: 'What does it learn?', a: 'To mark the names, dates and amounts it finds in your examples' },
-    { q: 'Want the most entities found?', a: 'LegalBERT (entities) — slower, often an hour or more on a CPU for a few thousand rows' },
-    { q: 'Want a quick result on an ordinary computer?', a: 'DistilBERT (entities) — a few minutes on a CPU for a few thousand rows' },
+    { q: 'Want the most entities found?', a: 'LegalBERT (entities) — the more accurate choice, but about twice as long to train as DistilBERT: tens of minutes or more on an ordinary computer for a few thousand rows' },
+    { q: 'Want a quicker result on an ordinary computer?', a: 'DistilBERT (entities) — about twice as fast as LegalBERT and lighter on memory' },
     { q: 'What does the score mean?', a: 'Entity F1: the share of entities it finds exactly right, counting both missed and wrongly added ones' },
   ],
   summarization: [
     { q: 'What does it learn?', a: 'To write summaries in the style of the examples you give it' },
-    { q: 'Short documents?', a: 'T5 small (summaries) with the default reading length — a few minutes on a CPU for a few thousand rows' },
-    { q: 'Long documents, such as full judgments?', a: 'T5 small (summaries) with a longer reading length — still minutes, a little longer' },
-    { q: 'What does the score mean?', a: 'ROUGE: how much of the words in your reference summaries the written summary overlaps' },
+    { q: 'Short documents?', a: 'T5 small (summaries) with the default reading length — tens of minutes on an ordinary computer for a few thousand rows' },
+    { q: 'Long documents, such as full judgments?', a: 'T5 small (summaries) with a longer reading length — noticeably slower, as it reads more of each document' },
+    { q: 'What does the score mean?', a: 'ROUGE: how many of the words in your reference summaries the written summary overlaps' },
   ],
 }
 
@@ -168,7 +168,7 @@ export const allModelInfo: Record<string, ModelInfo> = {
     label: 'DistilBERT (entities)',
     shortDesc: 'A small, fast BERT fine-tuned to find named entities',
     whenToUse: 'Best when you want to try entity training quickly on an ordinary computer',
-    example: '"Tag the people and organisations named in 2,000 contracts in a few minutes."',
+    example: '"Tag the people and organisations named in 2,000 contracts in tens of minutes on an ordinary computer."',
     strengths: ['Fast to train', 'Needs less memory than LegalBERT', 'Finds most entities in ordinary legal text'],
     bestFor: 'Quick entity tagging, first experiments, large document sets',
   },
@@ -188,7 +188,7 @@ export interface ParameterFieldSchema {
   shortDesc: string
   type: 'number' | 'select' | 'boolean'
   default: unknown
-  step?: number
+  step?: number | 'any'
   min?: number
   max?: number
   options?: string[]
@@ -282,14 +282,14 @@ export const parameterSchemas: Record<string, ParameterFieldSchema[]> = {
   legalbert_ner: [
     { key: 'model_name', label: 'Variant', shortDesc: 'Which LegalBERT model to start from', type: 'select', default: 'nlpaueb/legal-bert-base-uncased', options: ['nlpaueb/legal-bert-base-uncased'], explanation: 'The pre-trained model that training starts from.', recommendation: 'Keep the default.' },
     MAX_LENGTH,
-    { key: 'learning_rate', label: 'Learning Rate', shortDesc: 'How fast the model adapts to your data', type: 'number', default: 5e-5, step: 1e-5, min: 1e-6, max: 0.01, explanation: 'Controls how much the model changes with each training step. Too high = unstable training. Too low = very slow learning.', recommendation: '5e-5 is a good starting point for finding entities.' },
+    { key: 'learning_rate', label: 'Learning Rate', shortDesc: 'How fast the model adapts to your data', type: 'number', default: 5e-5, step: 'any', min: 1e-6, max: 0.01, explanation: 'Controls how much the model changes with each training step. Too high = unstable training. Too low = very slow learning.', recommendation: '5e-5 is a good starting point for finding entities.' },
     { key: 'batch_size', label: 'Batch Size', shortDesc: 'Documents processed together per training step', type: 'number', default: 8, step: 4, min: 4, max: 32, explanation: 'Larger batches train faster but need more memory. Smaller batches need less memory but are noisier.', recommendation: '8 for most computers. Use 4 if you run out of memory.' },
     { key: 'epochs', label: 'Training Epochs', shortDesc: 'How many times to train on the full dataset', type: 'number', default: 3, step: 1, min: 1, max: 10, explanation: 'Number of complete passes through the training data. More epochs = more training but a risk of memorising the examples.', recommendation: '3 epochs is a good starting point. Use 5 if it misses many entities.' },
   ],
   distilbert_ner: [
     { key: 'model_name', label: 'Variant', shortDesc: 'Which DistilBERT model to start from', type: 'select', default: 'distilbert-base-cased', options: ['distilbert-base-cased'], explanation: 'The pre-trained model that training starts from.', recommendation: 'Keep the default.' },
     MAX_LENGTH,
-    { key: 'learning_rate', label: 'Learning Rate', shortDesc: 'How fast the model adapts to your data', type: 'number', default: 5e-5, step: 1e-5, min: 1e-6, max: 0.01, explanation: 'Controls how much the model changes with each training step. Too high = unstable training. Too low = very slow learning.', recommendation: '5e-5 is a good starting point for finding entities.' },
+    { key: 'learning_rate', label: 'Learning Rate', shortDesc: 'How fast the model adapts to your data', type: 'number', default: 5e-5, step: 'any', min: 1e-6, max: 0.01, explanation: 'Controls how much the model changes with each training step. Too high = unstable training. Too low = very slow learning.', recommendation: '5e-5 is a good starting point for finding entities.' },
     { key: 'batch_size', label: 'Batch Size', shortDesc: 'Documents processed together per training step', type: 'number', default: 8, step: 4, min: 4, max: 32, explanation: 'Larger batches train faster but need more memory. Smaller batches need less memory but are noisier.', recommendation: '8 for most computers. Use 4 if you run out of memory.' },
     { key: 'epochs', label: 'Training Epochs', shortDesc: 'How many times to train on the full dataset', type: 'number', default: 3, step: 1, min: 1, max: 10, explanation: 'Number of complete passes through the training data. More epochs = more training but a risk of memorising the examples.', recommendation: '3 epochs is a good starting point. Use 5 if it misses many entities.' },
   ],
@@ -297,7 +297,7 @@ export const parameterSchemas: Record<string, ParameterFieldSchema[]> = {
     { key: 'model_name', label: 'Variant', shortDesc: 'Which T5 model to start from', type: 'select', default: 't5-small', options: ['t5-small'], explanation: 'The pre-trained model that training starts from.', recommendation: 'Keep the default.' },
     { key: 'max_source_length', label: 'Maximum Document Length', shortDesc: 'How much of each document the model reads', type: 'number', default: 512, step: 64, min: 128, max: 1024, explanation: 'Longer documents are cut off at this length. Longer limits read more but train more slowly.', recommendation: '512 suits most documents. Use 1024 for long judgments if training time allows.' },
     { key: 'max_target_length', label: 'Maximum Summary Length', shortDesc: 'How long the written summary can be', type: 'number', default: 128, step: 32, min: 32, max: 256, explanation: 'The longest summary the model can write, counted in word pieces. Longer summaries take more time to learn.', recommendation: '128 is enough for a few sentences. Use 256 for longer summaries.' },
-    { key: 'learning_rate', label: 'Learning Rate', shortDesc: 'How fast the model adapts to your data', type: 'number', default: 3e-4, step: 1e-5, min: 1e-6, max: 0.01, explanation: 'Controls how much the model changes with each training step. Too high = unstable training. Too low = very slow learning.', recommendation: '3e-4 is the usual starting point for T5.' },
+    { key: 'learning_rate', label: 'Learning Rate', shortDesc: 'How fast the model adapts to your data', type: 'number', default: 3e-4, step: 'any', min: 1e-6, max: 0.01, explanation: 'Controls how much the model changes with each training step. Too high = unstable training. Too low = very slow learning.', recommendation: '3e-4 is the usual starting point for T5.' },
     { key: 'batch_size', label: 'Batch Size', shortDesc: 'Documents processed together per training step', type: 'number', default: 8, step: 2, min: 2, max: 16, explanation: 'Larger batches train faster but need more memory. Smaller batches need less memory but are noisier.', recommendation: '8 for most computers. Use 2 or 4 if you run out of memory.' },
     { key: 'epochs', label: 'Training Epochs', shortDesc: 'How many times to train on the full dataset', type: 'number', default: 3, step: 1, min: 1, max: 10, explanation: 'Number of complete passes through the training data. More epochs = more training but a risk of memorising the examples.', recommendation: '3 epochs is a good starting point. Use 5 for a small set of examples.' },
   ],

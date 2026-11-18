@@ -15,13 +15,16 @@ tagged `vX.Y.Z`.
 
 ### Added
 
-- **The wizard offers the NER and summarization models** (BAIGLE #14):
+- **The wizard offers the NER and summarization models** (#14, BAIGLE #117):
   `legalbert_ner` and `distilbert_ner` for an NER Dataset, and `t5_small` for a
   summarization Dataset. Each has a catalogue entry, a plain-language guide and
   a parameter form whose keys, ranges and defaults match legal-ml-core's.
-- Model lists, the model page and the training monitor show F1 for entity
-  models and ROUGE-1, ROUGE-2 and ROUGE-L for summarization models, so a score
-  is never a blank or NaN. The parameter explorer offers the ROUGE scores too.
+- Model scores are shown per view. The model list shows accuracy, F1, ROUGE-1
+  and ROUGE-L, so classifiers now show F1 beside accuracy. The model page and
+  the training monitor show accuracy, precision, recall and F1 for classifiers;
+  F1, with precision and recall, for entity models; and ROUGE-1, ROUGE-2 and
+  ROUGE-L for summarization models. A score is never a blank or NaN. The
+  parameter explorer offers the ROUGE scores too.
 
 ## [0.11.0] - 2026-11-17
 

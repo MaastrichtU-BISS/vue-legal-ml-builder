@@ -2,7 +2,7 @@
 import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
 import type { MLAdapter, TrainingCurvesOptions } from '../types'
 import { useTraining } from '../composables/useTraining'
-import { numericMetric } from '../utils/metrics'
+import { scoreRows } from '../utils/metrics'
 import { modelTypeLabel } from './modelCatalogData'
 import ConfusionMatrix from './shared/ConfusionMatrix.vue'
 import TrainingCurves from './TrainingCurves.vue'
@@ -53,21 +53,8 @@ const wasStopped = computed(() => job.value?.status === 'cancelled')
 
 // Classification reports accuracy, NER reports F1, and summarization reports
 // ROUGE; whichever the model has are shown, never a blank or NaN.
-const SCORE_LABELS = [
-  { key: 'accuracy', label: 'Accuracy' },
-  { key: 'precision', label: 'Precision' },
-  { key: 'recall', label: 'Recall' },
-  { key: 'f1_score', label: 'F1' },
-  { key: 'rouge1', label: 'ROUGE-1' },
-  { key: 'rouge2', label: 'ROUGE-2' },
-  { key: 'rougeL', label: 'ROUGE-L' },
-]
-const scores = computed(() =>
-  SCORE_LABELS.flatMap(({ key, label }) => {
-    const value = numericMetric(model.value?.metrics, key)
-    return value === undefined ? [] : [{ key, label, text: `${(value * 100).toFixed(2)}%` }]
-  }),
-)
+const SCORE_KEYS = ['accuracy', 'precision', 'recall', 'f1_score', 'rouge1', 'rouge2', 'rougeL']
+const scores = computed(() => scoreRows(model.value?.metrics, SCORE_KEYS))
 
 async function onStart() {
   endedFirst.value = false

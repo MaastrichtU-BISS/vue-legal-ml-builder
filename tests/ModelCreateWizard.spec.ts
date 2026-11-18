@@ -750,6 +750,53 @@ describe('ModelCreateWizard', () => {
       expect(card(wrapper, 'Naive Bayes').classes()).toContain('vmlb-selected')
     })
 
+    it('drops a model chosen while the fit was pending, once the fit says it cannot train', async () => {
+      let resolveFit!: (answer: { models: Record<string, { usable: boolean; reason: string | null }>; advice: string | null }) => void
+      const getModelFit = vi.fn().mockReturnValue(new Promise((resolve) => { resolveFit = resolve }))
+      const adapter = createTestAdapter({ listDatasets: vi.fn().mockResolvedValue([dataset()]), getModelFit })
+      const wrapper = mount(ModelCreateWizard, { props: { adapter, datasetId: 'ds-1' } })
+      await flushPromises()
+
+      // The server is still deciding, so the full list is offered; choose a model.
+      await card(wrapper, 'Support Vector Machine').trigger('click')
+      expect(card(wrapper, 'Support Vector Machine').classes()).toContain('vmlb-selected')
+      const submit = wrapper.find('.vmlb-actions .vmlb-btn-primary')
+      expect(submit.attributes('disabled')).toBeDefined()
+
+      resolveFit({
+        models: {
+          svm: { usable: false, reason: 'This Dataset has no annotated rows.' },
+          naive_bayes: { usable: true, reason: null },
+        },
+        advice: null,
+      })
+      await flushPromises()
+
+      expect(card(wrapper, 'Naive Bayes').classes()).toContain('vmlb-selected')
+      expect(wrapper.find('.vmlb-actions .vmlb-btn-primary').attributes('disabled')).toBeUndefined()
+    })
+
+    it('keeps a model chosen while the fit was pending when the fit can train it', async () => {
+      let resolveFit!: (answer: { models: Record<string, { usable: boolean; reason: string | null }>; advice: string | null }) => void
+      const getModelFit = vi.fn().mockReturnValue(new Promise((resolve) => { resolveFit = resolve }))
+      const adapter = createTestAdapter({ listDatasets: vi.fn().mockResolvedValue([dataset()]), getModelFit })
+      const wrapper = mount(ModelCreateWizard, { props: { adapter, datasetId: 'ds-1' } })
+      await flushPromises()
+
+      await card(wrapper, 'Support Vector Machine').trigger('click')
+      resolveFit({
+        models: {
+          svm: { usable: true, reason: null },
+          naive_bayes: { usable: true, reason: null },
+        },
+        advice: null,
+      })
+      await flushPromises()
+
+      expect(card(wrapper, 'Support Vector Machine').classes()).toContain('vmlb-selected')
+      expect(wrapper.find('.vmlb-actions .vmlb-btn-primary').attributes('disabled')).toBeUndefined()
+    })
+
     it('when no model fits, says why and what would make the dataset trainable', async () => {
       const adapter = createTestAdapter({
         listDatasets: vi.fn().mockResolvedValue([dataset()]),

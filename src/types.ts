@@ -638,6 +638,8 @@ export interface PredictionResult {
   cluster_id?: number
   dominant_topic?: number
   topic_weights?: number[]
+  /** NER: every entity found in the text, with where it starts and ends. */
+  entities?: Array<{ start: number; end: number; type: string; text: string; score?: number }>
 }
 
 export interface ExplanationResult {

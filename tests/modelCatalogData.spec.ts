@@ -52,7 +52,7 @@ describe('the NER parameter schemas', () => {
 
       expect(field(modelType, 'model_name')).toMatchObject({ type: 'select', default: modelName, options: [modelName] })
       expect(field(modelType, 'max_length')).toMatchObject({ type: 'number', min: 128, max: 512, default: 256 })
-      expect(field(modelType, 'learning_rate')).toMatchObject({ type: 'number', min: 1e-6, max: 0.01, default: 5e-5 })
+      expect(field(modelType, 'learning_rate')).toMatchObject({ type: 'number', min: 1e-6, max: 0.01, default: 5e-5, step: 'any' })
       expect(field(modelType, 'batch_size')).toMatchObject({ type: 'number', min: 4, max: 32, default: 8 })
       expect(field(modelType, 'epochs')).toMatchObject({ type: 'number', min: 1, max: 10, default: 3 })
     })
@@ -73,7 +73,7 @@ describe('the summarization parameter schema', () => {
     expect(field('t5_small', 'model_name')).toMatchObject({ type: 'select', default: 't5-small', options: ['t5-small'] })
     expect(field('t5_small', 'max_source_length')).toMatchObject({ type: 'number', min: 128, max: 1024, default: 512 })
     expect(field('t5_small', 'max_target_length')).toMatchObject({ type: 'number', min: 32, max: 256, default: 128 })
-    expect(field('t5_small', 'learning_rate')).toMatchObject({ type: 'number', min: 1e-6, max: 0.01, default: 3e-4 })
+    expect(field('t5_small', 'learning_rate')).toMatchObject({ type: 'number', min: 1e-6, max: 0.01, default: 3e-4, step: 'any' })
     expect(field('t5_small', 'batch_size')).toMatchObject({ type: 'number', min: 2, max: 16, default: 8 })
     expect(field('t5_small', 'epochs')).toMatchObject({ type: 'number', min: 1, max: 10, default: 3 })
   })

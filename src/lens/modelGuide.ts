@@ -152,8 +152,11 @@ export interface GuideAdvice {
  * in advance to learn from. */
 export const SMALL_DATASET_ROWS = 1000
 // Models that need a lot of documents, and what to steer to instead, in order.
-const NEEDS_MANY_DOCUMENTS = ['legalbert', 'roberta', 'legalbert_ner']
-const FOR_FEWER_DOCUMENTS = ['random_forest', 'logistic_regression', 'svm', 'decision_tree', 'naive_bayes', 'distilbert_ner']
+const FALLBACKS: Record<string, string[]> = {
+  legalbert: ['random_forest', 'logistic_regression', 'svm', 'decision_tree', 'naive_bayes'],
+  roberta: ['random_forest', 'logistic_regression', 'svm', 'decision_tree', 'naive_bayes'],
+  legalbert_ner: ['distilbert_ner'],
+}
 
 /** The most common label at least this many times the rarest counts as imbalanced. */
 export const IMBALANCE_RATIO = 3
@@ -173,8 +176,8 @@ function imbalanced(labelCounts?: Record<string, number> | null): boolean {
 export function adviseFor(option: GuideOption, facts: DatasetFacts = {}, context: GuideContext = {}): GuideAdvice {
   const recommended = option.recommend ?? ''
   const tooFewDocuments = facts.rowCount !== undefined && facts.rowCount < SMALL_DATASET_ROWS
-  const forFewerDocuments = tooFewDocuments && NEEDS_MANY_DOCUMENTS.includes(recommended)
-    ? FOR_FEWER_DOCUMENTS.find((type) => context.available?.includes(type) ?? true)
+  const forFewerDocuments = tooFewDocuments
+    ? FALLBACKS[recommended]?.find((type) => context.available?.includes(type) ?? true)
     : undefined
   const modelType = forFewerDocuments ?? recommended
   const { schema, rules, multiclass } = settingsSetup(modelType, {
@@ -186,7 +189,9 @@ export function adviseFor(option: GuideOption, facts: DatasetFacts = {}, context
   const label = (type: string) => allModelInfo[type]?.label ?? type
   const reasons = [
     forFewerDocuments
-      ? `Recommended because this Dataset has only ${facts.rowCount!.toLocaleString('en-GB')} documents, which is too few for ${label(recommended)} to learn from, and ${label(forFewerDocuments)} gets good results from fewer.`
+      ? recommended === 'legalbert_ner'
+        ? `Recommended because this Dataset has only ${facts.rowCount!.toLocaleString('en-GB')} documents, and ${label(forFewerDocuments)} is faster and lighter to train on a small set than ${label(recommended)}.`
+        : `Recommended because this Dataset has only ${facts.rowCount!.toLocaleString('en-GB')} documents, which is too few for ${label(recommended)} to learn from, and ${label(forFewerDocuments)} gets good results from fewer.`
       : option.note ? `Recommended because ${lowerFirst(option.note)}` : '',
   ]
   // The settings the advice changes, before they are fitted to the schema and rules.

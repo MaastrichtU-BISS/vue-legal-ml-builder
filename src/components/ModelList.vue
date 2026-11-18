@@ -2,7 +2,7 @@
 import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
 import type { MLAdapter, MlModel } from '../types'
 import { useModels } from '../composables/useModels'
-import { numericMetric } from '../utils/metrics'
+import { scoreRows } from '../utils/metrics'
 import { modelTypeLabel } from './modelCatalogData'
 import Icon from './shared/Icon.vue'
 
@@ -33,18 +33,10 @@ async function onDelete(id: string) {
 // The scores a model reports, in the order a no-code user reads them. NER
 // models report F1, summarization models report ROUGE, and classification
 // models report accuracy; whichever are present are shown.
-const SCORE_LABELS = [
-  { key: 'accuracy', label: 'Accuracy' },
-  { key: 'f1_score', label: 'F1' },
-  { key: 'rouge1', label: 'ROUGE-1' },
-  { key: 'rougeL', label: 'ROUGE-L' },
-]
+const LIST_SCORE_KEYS = ['accuracy', 'f1_score', 'rouge1', 'rougeL']
 
-function scoreRows(model: MlModel) {
-  return SCORE_LABELS.flatMap(({ key, label }) => {
-    const value = numericMetric(model.metrics, key)
-    return value === undefined ? [] : [{ key, label, text: `${(value * 100).toFixed(1)}%` }]
-  })
+function listScores(model: MlModel) {
+  return scoreRows(model.metrics, LIST_SCORE_KEYS, 1)
 }
 </script>
 
@@ -80,7 +72,7 @@ function scoreRows(model: MlModel) {
         <div class="vmlb-tile-head">
           <div>
             <h3>{{ model.name }}</h3>
-            <p class="vmlb-muted vmlb-capitalize">{{ modelTypeLabel(model.model_type) }}</p>
+            <p class="vmlb-muted">{{ modelTypeLabel(model.model_type) }}</p>
           </div>
           <button class="vmlb-icon-btn" title="Delete model" @click="confirmingId = model.id">
             <Icon name="close" />
@@ -96,7 +88,7 @@ function scoreRows(model: MlModel) {
             <span class="vmlb-muted">Created</span>
             <span>{{ new Date(model.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) }}</span>
           </div>
-          <div v-for="score in scoreRows(model)" :key="score.key" class="vmlb-row">
+          <div v-for="score in listScores(model)" :key="score.key" class="vmlb-row">
             <span class="vmlb-muted">{{ score.label }}</span>
             <span class="vmlb-num">{{ score.text }}</span>
           </div>
@@ -124,7 +116,6 @@ function scoreRows(model: MlModel) {
 .vmlb-list-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.75rem; }
 .vmlb-list-header h2 { margin: 0 0 0.25rem; font-size: var(--vmlb-font-size-3xl); }
 .vmlb-list-header .vmlb-muted { margin: 0; max-width: 48ch; }
-.vmlb-capitalize { text-transform: capitalize; }
 .vmlb-confirm {
   display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto;
   padding-top: 0.75rem; border-top: 1px dashed var(--vmlb-border-strong);

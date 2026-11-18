@@ -76,6 +76,35 @@ describe('TrainingMonitor: stopping a run', () => {
   })
 })
 
+describe('TrainingMonitor: model scores', () => {
+  async function mountCompleted(modelType: string, metrics: Record<string, unknown>) {
+    const adapter = createTestAdapter({
+      getModel: vi.fn().mockResolvedValue(model({ status: 'completed', model_type: modelType, metrics })),
+    })
+    const wrapper = mount(TrainingMonitor, { props: { adapter, modelId: 'm1' } })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('shows F1 for a completed entity model', async () => {
+    const wrapper = await mountCompleted('legalbert_ner', { f1_score: 0.87, precision: 0.9, recall: 0.84 })
+
+    expect(wrapper.text()).toContain('F1')
+    expect(wrapper.text()).toContain('87.00%')
+    expect(wrapper.text()).not.toContain('NaN')
+  })
+
+  it('shows ROUGE for a completed summarization model', async () => {
+    const wrapper = await mountCompleted('t5_small', { rouge1: 0.42, rouge2: 0.2, rougeL: 0.39 })
+
+    expect(wrapper.text()).toContain('ROUGE-1')
+    expect(wrapper.text()).toContain('42.00%')
+    expect(wrapper.text()).toContain('ROUGE-L')
+    expect(wrapper.text()).toContain('39.00%')
+    expect(wrapper.text()).not.toContain('NaN')
+  })
+})
+
 describe('TrainingMonitor: configuring the curves', () => {
   it('passes the curve settings through to TrainingCurves', async () => {
     const curveProps = { metrics: ['loss'], groupBy: 'none', xAxis: 'epoch', pollIntervalMs: 1000, smoothing: 0.6, logScale: true } as const

@@ -2,7 +2,7 @@
 import { computed, inject, ref, watch } from 'vue'
 import type { MLAdapter } from '../types'
 import { useParameterComparison } from '../composables/useParameterComparison'
-import { parameterSchemas } from './modelCatalogData'
+import { modelTypeLabel, parameterSchemas } from './modelCatalogData'
 import PlotlyChart from './shared/PlotlyChart.vue'
 import Icon from './shared/Icon.vue'
 
@@ -24,6 +24,8 @@ function defaultMetricFor(modelType: string): string {
 
 watch(() => props.modelType, (modelType) => {
   if (!props.metric) metric.value = defaultMetricFor(modelType)
+  // The chosen parameter may not exist on the new model.
+  if (!parameterKeys.value.includes(selectedParam.value)) selectedParam.value = parameterKeys.value[0] ?? ''
 })
 
 async function refresh() {
@@ -95,7 +97,7 @@ const paramExplanation = computed(() => {
       <div v-if="points.length < 2" class="vmlb-empty">
         <Icon name="chart" size="2rem" class="vmlb-empty-icon" />
         <p class="vmlb-empty-title">Not enough runs yet</p>
-        <p>Train at least 2 {{ modelType }} models to see how {{ selectedParam || 'a parameter' }} affects {{ metric }}.</p>
+        <p>Train at least 2 {{ modelTypeLabel(modelType) }} models to see how {{ selectedParam || 'a parameter' }} affects {{ metric }}.</p>
       </div>
       <template v-else>
         <PlotlyChart v-if="plotData" :plot-data="plotData" plot-id="vmlb-param-explorer" />

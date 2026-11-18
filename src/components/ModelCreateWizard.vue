@@ -64,6 +64,8 @@ const overviewLabels = ref<string[] | null>(null)
 const labelCounts = ref<Record<string, number> | null>(null)
 // Every model fitted to the dataset, with why it cannot train it (getModelFit).
 const fit = ref<ModelFit | null>(null)
+// True while the server is still deciding which models the dataset can train.
+const fitPending = ref(false)
 
 const staticModels = computed<string[]>(() =>
   selectedDataset.value ? (modelsByTaskType[selectedDataset.value.task_type] || []) : [],
@@ -144,8 +146,10 @@ async function loadBackendModels() {
   backendModels.value = null
   backendInfo.value = {}
   fit.value = null
+  fitPending.value = false
   const dataset = selectedDataset.value
   if (adapter.value?.getModelFit && dataset) {
+    fitPending.value = true
     try {
       const answer = await adapter.value.getModelFit(dataset.id)
       if (selectedDataset.value !== dataset) return
@@ -153,9 +157,13 @@ async function loadBackendModels() {
       backendInfo.value = Object.fromEntries(
         Object.entries(answer.models).filter(([, m]) => m.usable),
       ) as Record<string, ModelTypeInfo>
+      // A choice made while the fit loaded may not be one the dataset can train.
+      ensureSelectionUsable()
       return
     } catch {
       fit.value = null // fall back to the task type's catalogue
+    } finally {
+      if (selectedDataset.value === dataset) fitPending.value = false
     }
   }
   if (!adapter.value?.getAvailableModelTypes || !dataset) return
@@ -209,6 +217,15 @@ function onDatasetChange() {
   modelNameEdited.value = false
   modelName.value = ''
   prepareDataset()
+}
+
+// Once the fit arrives, keep a selection only if the server can train it;
+// otherwise replace it with the default usable model, or clear it.
+function ensureSelectionUsable() {
+  if (!fit.value || !modelType.value || isUsable(modelType.value)) return
+  const replacement = defaultModelFor(availableModels.value)
+  if (replacement) selectModelType(replacement)
+  else modelType.value = ''
 }
 
 function selectModelType(type: string, preset?: Record<string, unknown>) {
@@ -433,7 +450,7 @@ async function createModel() {
         <button
           type="button"
           class="vmlb-btn-primary"
-          :disabled="isCreating || !selectedDataset || !modelName.trim() || !modelType"
+          :disabled="isCreating || !selectedDataset || !modelName.trim() || !modelType || fitPending || !isUsable(modelType)"
           @click="createModel"
         >
           {{ isCreating ? 'Creating & starting training…' : 'Create & train' }}

@@ -9,8 +9,38 @@ describe('ParameterPerformanceExplorer', () => {
     const wrapper = mount(ParameterPerformanceExplorer, { props: { adapter, modelType: 'svm' } })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Train at least 2 svm models')
+    expect(wrapper.text()).toContain('Train at least 2 Support Vector Machine models')
     expect(adapter.getParameterComparison).toHaveBeenCalledWith('svm', 'accuracy')
+  })
+
+  it('opens on f1_score for an entity model', async () => {
+    const adapter = createTestAdapter({ getParameterComparison: vi.fn().mockResolvedValue([]) })
+    mount(ParameterPerformanceExplorer, { props: { adapter, modelType: 'legalbert_ner' } })
+    await flushPromises()
+
+    expect(adapter.getParameterComparison).toHaveBeenCalledWith('legalbert_ner', 'f1_score')
+  })
+
+  it('opens on rouge1 for the summarization model', async () => {
+    const adapter = createTestAdapter({ getParameterComparison: vi.fn().mockResolvedValue([]) })
+    mount(ParameterPerformanceExplorer, { props: { adapter, modelType: 't5_small' } })
+    await flushPromises()
+
+    expect(adapter.getParameterComparison).toHaveBeenCalledWith('t5_small', 'rouge1')
+  })
+
+  it('follows a modelType change, with the metric and the selected parameter', async () => {
+    const adapter = createTestAdapter({ getParameterComparison: vi.fn().mockResolvedValue([]) })
+    const wrapper = mount(ParameterPerformanceExplorer, { props: { adapter, modelType: 'svm' } })
+    await flushPromises()
+    expect(adapter.getParameterComparison).toHaveBeenCalledWith('svm', 'accuracy')
+    expect((wrapper.findAll('select')[0].element as HTMLSelectElement).value).toBe('C')
+
+    await wrapper.setProps({ modelType: 't5_small' })
+    await flushPromises()
+
+    expect(adapter.getParameterComparison).toHaveBeenLastCalledWith('t5_small', 'rouge1')
+    expect((wrapper.findAll('select')[0].element as HTMLSelectElement).value).toBe('model_name')
   })
 
   it('reloads when the metric selector changes', async () => {
