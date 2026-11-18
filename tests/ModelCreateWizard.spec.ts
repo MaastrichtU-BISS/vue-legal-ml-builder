@@ -900,6 +900,40 @@ describe('ModelCreateWizard', () => {
       expect(wrapper.find('.vmlb-actions .vmlb-btn-primary').attributes('disabled')).toBeUndefined()
     })
 
+    it('never chooses or submits a model the catalogue leaves out, even from the guide', async () => {
+      const createModel = vi.fn().mockResolvedValue({ id: 'm1' })
+      const adapter = createTestAdapter({
+        listDatasets: vi.fn().mockResolvedValue([dataset({ task_type: 'ner', row_count: 2000 })]),
+        getAvailableModelTypes: vi.fn().mockResolvedValue({
+          ner: { distilbert_ner: { name: 'DistilBERT (entities)', description: '', parameters: {} } },
+        }),
+        createModel,
+      })
+      const wrapper = mount(ModelCreateWizard, { props: { adapter, datasetId: 'ds-1' } })
+      await flushPromises()
+
+      await wrapper.findAll('.vmlb-guide-option').find((t) => t.text().includes('Finding every entity'))!.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.vmlb-guide-rec-desc').text()).toContain('not offered')
+      await wrapper.find('.vmlb-actions .vmlb-btn-primary').trigger('click')
+      await flushPromises()
+      expect(createModel.mock.calls[0][0].model_type).toBe('distilbert_ner')
+    })
+
+    it('offers no model when the catalogue names the task with none', async () => {
+      const adapter = createTestAdapter({
+        listDatasets: vi.fn().mockResolvedValue([dataset({ task_type: 'ner' })]),
+        getAvailableModelTypes: vi.fn().mockResolvedValue({ ner: {} }),
+      })
+      const wrapper = mount(ModelCreateWizard, { props: { adapter, datasetId: 'ds-1' } })
+      await flushPromises()
+
+      expect(wrapper.find('.vmlb-model-card.vmlb-selected').exists()).toBe(false)
+      const submit = wrapper.find('.vmlb-actions .vmlb-btn-primary')
+      expect(!submit.exists() || submit.attributes('disabled') !== undefined).toBe(true)
+    })
+
     it('when no model fits, says why and what would make the dataset trainable', async () => {
       const adapter = createTestAdapter({
         listDatasets: vi.fn().mockResolvedValue([dataset()]),

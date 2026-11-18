@@ -176,7 +176,9 @@ function imbalanced(labelCounts?: Record<string, number> | null): boolean {
 export function adviseFor(option: GuideOption, facts: DatasetFacts = {}, context: GuideContext = {}): GuideAdvice {
   const recommended = option.recommend ?? ''
   const tooFewDocuments = facts.rowCount !== undefined && facts.rowCount < SMALL_DATASET_ROWS
-  const forFewerDocuments = tooFewDocuments
+  // A recommendation the Dataset is not offered falls back the same way.
+  const notOffered = context.available !== undefined && !context.available.includes(recommended)
+  const forFewerDocuments = tooFewDocuments || notOffered
     ? FALLBACKS[recommended]?.find((type) => context.available?.includes(type) ?? true)
     : undefined
   const modelType = forFewerDocuments ?? recommended
@@ -188,7 +190,9 @@ export function adviseFor(option: GuideOption, facts: DatasetFacts = {}, context
   const offers = (key: string) => schema.some((p) => p.key === key)
   const label = (type: string) => allModelInfo[type]?.label ?? type
   const reasons = [
-    forFewerDocuments
+    forFewerDocuments && notOffered
+      ? `${label(recommended)} is not offered for this Dataset, so ${label(forFewerDocuments)} is recommended instead.`
+      : forFewerDocuments
       ? recommended === 'legalbert_ner'
         ? `Recommended because this Dataset has only ${facts.rowCount!.toLocaleString('en-GB')} documents, and ${label(forFewerDocuments)} is faster and lighter to train on a small set than ${label(recommended)}.`
         : `Recommended because this Dataset has only ${facts.rowCount!.toLocaleString('en-GB')} documents, which is too few for ${label(recommended)} to learn from, and ${label(forFewerDocuments)} gets good results from fewer.`

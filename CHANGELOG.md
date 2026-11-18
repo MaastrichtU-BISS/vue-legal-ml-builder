@@ -38,7 +38,11 @@ tagged `vX.Y.Z`.
   model chosen while the fit was loading is replaced once the fit says it
   cannot train it (or leaves it out), as is one the fallback catalogue does
   not offer; Create & train waits for the fit or catalogue, and only the
-  latest request counts when the dataset changes, defaults included.
+  latest request counts when the dataset changes, defaults included. A
+  model the dataset is not offered can never be chosen (by a click, the guide
+  or a late overview) or submitted; the guide falls back from a
+  recommendation that is not offered and says so; and a catalogue that names
+  the task with no models offers none rather than the built-in list.
 
 ## [0.11.0] - 2026-11-17
 

@@ -154,4 +154,11 @@ describe('every guide recommendation', () => {
       expect(why, where).not.toMatch(jargon)
     }
   })
+
+  it('falls back from a recommendation the Dataset is not offered', () => {
+    const option = { label: 'Finding every entity', recommend: 'legalbert_ner' }
+    const advice = adviseFor(option, { rowCount: 2000 }, { available: ['distilbert_ner'] })
+    expect(advice.modelType).toBe('distilbert_ner')
+    expect(advice.why).toContain('not offered')
+  })
 })

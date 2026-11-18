@@ -74,7 +74,9 @@ const staticModels = computed<string[]>(() =>
 const availableModels = computed<string[]>(() => {
   if (!selectedDataset.value) return []
   if (fit.value) return fittedModels.value.filter((t) => isUsable(t))
-  if (backendModels.value && backendModels.value.length) return backendModels.value
+  // A catalogue that names the task decides, even when it offers none; only an
+  // adapter without one (or a catalogue that leaves the task out) falls back.
+  if (backendModels.value) return backendModels.value
   return staticModels.value
 })
 // With a fit, the grid lists every model, usable first, so the rest can say why not.
@@ -183,9 +185,9 @@ async function loadBackendModels(): Promise<boolean> {
     try {
       const catalog = await adapter.value.getAvailableModelTypes(dataset.task_type)
       if (request !== fitRequest) return false
-      backendInfo.value = catalog?.[dataset.task_type] ?? {}
-      const types = Object.keys(backendInfo.value)
-      backendModels.value = types.length ? types : null
+      const offered = catalog?.[dataset.task_type]
+      backendInfo.value = offered ?? {}
+      backendModels.value = offered ? Object.keys(offered) : null
     } catch {
       if (request !== fitRequest) return false
       backendModels.value = null
@@ -249,8 +251,14 @@ function ensureSelectionUsable() {
   else modelType.value = ''
 }
 
+// Only a model the dataset is offered can be chosen, by a click, the guide, or
+// a late overview re-applying the guide's pick.
+function isOffered(type: string) {
+  return availableModels.value.includes(type)
+}
+
 function selectModelType(type: string, preset?: Record<string, unknown>) {
-  if (!isUsable(type)) return
+  if (!isOffered(type)) return
   modelType.value = type
   expandedModelInfo.value = type
   initialParameters.value = { ...preset }
@@ -471,7 +479,7 @@ async function createModel() {
         <button
           type="button"
           class="vmlb-btn-primary"
-          :disabled="isCreating || !selectedDataset || !modelName.trim() || !modelType || fitPending || !isUsable(modelType)"
+          :disabled="isCreating || !selectedDataset || !modelName.trim() || !modelType || fitPending || !isOffered(modelType)"
           @click="createModel"
         >
           {{ isCreating ? 'Creating & starting training…' : 'Create & train' }}
