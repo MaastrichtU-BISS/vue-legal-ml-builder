@@ -144,50 +144,58 @@ onMounted(async () => {
   }
 })
 
-// Each fit request gets a number; only the latest one's answer, failure or
-// cleanup counts, so switching datasets back and forth cannot let an old
-// answer unlock Create & train or erase a newer refusal.
+// Each request for the dataset's models gets a number; only the latest one's
+// answer, failure or cleanup counts, so switching datasets back and forth
+// cannot let an old answer unlock Create & train, erase a newer refusal, or
+// pick a default. Returns whether this call was still the latest when done.
 let fitRequest = 0
 
-async function loadBackendModels() {
+async function loadBackendModels(): Promise<boolean> {
   const request = ++fitRequest
   backendModels.value = null
   backendInfo.value = {}
   fit.value = null
   fitPending.value = false
   const dataset = selectedDataset.value
-  if (adapter.value?.getModelFit && dataset) {
-    fitPending.value = true
+  if (!dataset) return true
+  // Create & train waits for the fit, or for the catalogue that replaces it.
+  fitPending.value = Boolean(adapter.value?.getModelFit || adapter.value?.getAvailableModelTypes)
+  if (adapter.value?.getModelFit) {
     let answer: ModelFit | null = null
     try {
       answer = await adapter.value.getModelFit(dataset.id)
     } catch {
       answer = null // fall back to the task type's catalogue
     }
-    if (request !== fitRequest) return
-    fitPending.value = false
+    if (request !== fitRequest) return false
     if (answer) {
       fit.value = answer
       backendInfo.value = Object.fromEntries(
         Object.entries(answer.models).filter(([, m]) => m.usable),
       ) as Record<string, ModelTypeInfo>
+      fitPending.value = false
       // A choice made while the fit loaded may not be one the dataset can train.
       ensureSelectionUsable()
-      return
+      return true
     }
   }
-  if (!adapter.value?.getAvailableModelTypes || !dataset) return
-  try {
-    const catalog = await adapter.value.getAvailableModelTypes(dataset.task_type)
-    if (request !== fitRequest) return
-    backendInfo.value = catalog?.[dataset.task_type] ?? {}
-    const types = Object.keys(backendInfo.value)
-    backendModels.value = types.length ? types : null
-  } catch {
-    if (request === fitRequest) backendModels.value = null
+  if (adapter.value?.getAvailableModelTypes) {
+    try {
+      const catalog = await adapter.value.getAvailableModelTypes(dataset.task_type)
+      if (request !== fitRequest) return false
+      backendInfo.value = catalog?.[dataset.task_type] ?? {}
+      const types = Object.keys(backendInfo.value)
+      backendModels.value = types.length ? types : null
+    } catch {
+      if (request !== fitRequest) return false
+      backendModels.value = null
+    }
   }
+  fitPending.value = false
+  // Likewise for a choice made while the catalogue loaded.
+  ensureSelectionUsable()
+  return true
 }
-
 
 async function loadOverviewLabels() {
   overviewLabels.value = null
@@ -212,8 +220,9 @@ async function loadOverviewLabels() {
 async function prepareDataset() {
   const dataset = selectedDataset.value
   loadOverviewLabels()
-  await loadBackendModels()
-  // Not if the user picked a model, or another dataset, while the catalogue loaded.
+  // Not if a newer request took over, or the user picked a model, or another
+  // dataset, while the models loaded.
+  if (!(await loadBackendModels())) return
   if (selectedDataset.value !== dataset || modelType.value) return
   const type = defaultModelFor(availableModels.value)
   if (!type) return
@@ -230,10 +239,11 @@ function onDatasetChange() {
   prepareDataset()
 }
 
-// Once the fit arrives, keep a selection only if the server can train it;
-// otherwise replace it with the default usable model, or clear it.
+// Once the fit or catalogue arrives, keep a selection only if it offers it
+// (and the fit can train it); otherwise replace it with the default model, or
+// clear it.
 function ensureSelectionUsable() {
-  if (!fit.value || !modelType.value || isUsable(modelType.value)) return
+  if (!modelType.value || availableModels.value.includes(modelType.value)) return
   const replacement = defaultModelFor(availableModels.value)
   if (replacement) selectModelType(replacement)
   else modelType.value = ''

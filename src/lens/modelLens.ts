@@ -1,3 +1,5 @@
+import { isEntityModelType, isSummaryModelType } from '../components/modelCatalogData'
+
 export type LensFamily = 'tree' | 'linear' | 'cluster' | 'topic' | 'transformer'
 
 const FAMILY_BY_TYPE: Record<string, LensFamily> = {
@@ -193,7 +195,7 @@ export function lensCopy(modelType: string, parameters: Record<string, unknown>,
     const epochs = num(parameters.epochs, 3)
     const lr = num(parameters.learning_rate, 2e-5)
     const legalLanguage = modelType === 'legalbert' || modelType === 'legalbert_ner'
-    if (modelType === 'legalbert_ner' || modelType === 'distilbert_ner') {
+    if (isEntityModelType(modelType)) {
       return {
         headline: `Every word read in the context of every other`,
         reading: `Rather than matching a list of names, the model weighs each word against the rest of the sentence to decide where an entity starts and ends. ${Math.round(epochs)} passes over your examples fine-tune it from a ${legalLanguage ? 'legal-language' : 'general-language'} starting point to the spans you mark.`,
@@ -205,7 +207,7 @@ export function lensCopy(modelType: string, parameters: Record<string, unknown>,
         ],
       }
     }
-    if (modelType === 't5_small') {
+    if (isSummaryModelType(modelType)) {
       return {
         headline: `A text-to-text model that writes the summary`,
         reading: `The model reads the document and writes a new summary word by word, guided by the summaries in your examples. ${Math.round(epochs)} passes over your data fine-tune it from a general-language starting point to the style of those summaries.`,

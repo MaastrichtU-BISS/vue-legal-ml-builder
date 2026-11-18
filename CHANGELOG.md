@@ -36,8 +36,9 @@ tagged `vX.Y.Z`.
 
 - The wizard no longer lets a model the dataset cannot train be created: a
   model chosen while the fit was loading is replaced once the fit says it
-  cannot train it (or leaves it out), Create & train waits for the fit, and
-  only the latest fit request counts when the dataset changes.
+  cannot train it (or leaves it out), as is one the fallback catalogue does
+  not offer; Create & train waits for the fit or catalogue, and only the
+  latest request counts when the dataset changes, defaults included.
 
 ## [0.11.0] - 2026-11-17
 
