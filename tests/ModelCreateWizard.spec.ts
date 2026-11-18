@@ -930,10 +930,27 @@ describe('ModelCreateWizard', () => {
       await flushPromises()
 
       expect(wrapper.find('.vmlb-model-card.vmlb-selected').exists()).toBe(false)
-      const submit = wrapper.find('.vmlb-actions .vmlb-btn-primary')
-      expect(!submit.exists() || submit.attributes('disabled') !== undefined).toBe(true)
+      expect(wrapper.find('.vmlb-actions').exists()).toBe(false)
       // No guide to recommend a model nothing offers.
       expect(wrapper.find('.vmlb-guide-tree').exists()).toBe(false)
+    })
+
+    it('still offers and submits the built-in models with an adapter that has neither lookup', async () => {
+      const createModel = vi.fn().mockResolvedValue({ id: 'm1' })
+      const adapter = createTestAdapter({ listDatasets: vi.fn().mockResolvedValue([dataset()]), createModel })
+      delete (adapter as Partial<typeof adapter>).getAvailableModelTypes
+      delete (adapter as Partial<typeof adapter>).getModelFit
+      const wrapper = mount(ModelCreateWizard, { props: { adapter, datasetId: 'ds-1' } })
+      await flushPromises()
+
+      await wrapper.find('.vmlb-show-models').trigger('click')
+      await card(wrapper, 'Naive Bayes').trigger('click')
+      await wrapper.find('#vmlb-model-name').setValue('My model')
+      const submit = wrapper.find('.vmlb-actions .vmlb-btn-primary')
+      expect(submit.attributes('disabled')).toBeUndefined()
+      await submit.trigger('click')
+      await flushPromises()
+      expect(createModel.mock.calls[0][0].model_type).toBe('naive_bayes')
     })
 
     it('when no model fits, says why and what would make the dataset trainable', async () => {

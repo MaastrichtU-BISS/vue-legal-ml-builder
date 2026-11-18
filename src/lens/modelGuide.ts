@@ -1,4 +1,4 @@
-import { allModelInfo } from '../components/modelCatalogData'
+import { allModelInfo, defaultModelFor } from '../components/modelCatalogData'
 import { reconcileChoices, settingsSetup } from '../components/parameterOptions'
 import type { ModelTypeInfo } from '../types'
 
@@ -181,9 +181,10 @@ export function adviseFor(option: GuideOption, facts: DatasetFacts = {}, context
   const fallback = tooFewDocuments || notOffered
     ? FALLBACKS[recommended]?.find((type) => context.available?.includes(type) ?? true)
     : undefined
-  // Not offered and nothing in its fallback list is either: the first model the
-  // Dataset is offered, so the guide never recommends one it cannot use.
-  const forFewerDocuments = fallback ?? (notOffered ? context.available?.[0] : undefined)
+  // Not offered and nothing in its fallback list is either: the wizard's own
+  // default among the offered models, so the guide never recommends one it
+  // cannot use.
+  const forFewerDocuments = fallback ?? (notOffered && context.available?.length ? defaultModelFor(context.available) : undefined)
   const modelType = forFewerDocuments ?? recommended
   const { schema, rules, multiclass } = settingsSetup(modelType, {
     modelInfo: context.catalogue?.[modelType],

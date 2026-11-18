@@ -168,4 +168,10 @@ describe('every guide recommendation', () => {
     expect(advice.modelType).toBe('legalbert_ner')
     expect(advice.why).toContain('not offered')
   })
+
+  it('falls back to the wizard default when nothing in the fallback list is offered', () => {
+    const option = { label: 'Fast', recommend: 'svm' }
+    const advice = adviseFor(option, { rowCount: 2000 }, { available: ['decision_tree', 'logistic_regression'] })
+    expect(advice.modelType).toBe('logistic_regression')
+  })
 })
