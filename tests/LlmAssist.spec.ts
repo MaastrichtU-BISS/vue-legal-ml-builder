@@ -190,6 +190,44 @@ describe('LLM assistance: status and own key', () => {
   })
 })
 
+describe('LLM assistance: when the shared key is unavailable', () => {
+  const meterDown = llmStatus({
+    shared_key_available: false,
+    shared_key_unavailable_reason: 'The shared LLM key is unavailable right now. Your own API key would still work.',
+  })
+
+  it('says why on first load, and offers an own key straight away', async () => {
+    const { wrapper } = await mounted({ getLlmStatus: vi.fn().mockResolvedValue(meterDown) })
+
+    const text = panel(wrapper).text()
+    expect(text).toContain('The shared LLM key is unavailable right now. Your own API key would still work.')
+    expect(text).not.toContain('Suggestions use the shared key')
+    const addKey = wrapper.find('details.vmlb-llm-add-key')
+    expect(addKey.attributes('open')).toBeDefined()
+    expect(addKey.find('input[name="api_key"]').exists()).toBe(true)
+    expect(button(wrapper, 'Suggest labels for this batch')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('switches to the own key once one is saved', async () => {
+    const saved = llmStatus({ mode: 'byok', destination: 'api.example.com', model: 'gpt-x', remaining_tokens: null, key: { base_url: 'https://api.example.com/v1', model: 'gpt-x' } })
+    const getLlmStatus = vi.fn().mockResolvedValueOnce(meterDown).mockResolvedValue(saved)
+    const { adapter, wrapper } = await mounted({ getLlmStatus })
+
+    expect(panel(wrapper).text()).toContain('Your own API key would still work.')
+    await wrapper.find('input[name="base_url"]').setValue('https://api.example.com/v1')
+    await wrapper.find('input[name="model"]').setValue('gpt-x')
+    await wrapper.find('input[name="api_key"]').setValue('sk-secret')
+    await wrapper.find('form.vmlb-llm-key').trigger('submit')
+    await flushPromises()
+
+    expect(adapter.saveLlmKey).toHaveBeenCalledWith({ base_url: 'https://api.example.com/v1', model: 'gpt-x', api_key: 'sk-secret' })
+    expect(panel(wrapper).text()).toContain('Suggestions use your own key. Text is sent to api.example.com.')
+    expect(wrapper.find('details.vmlb-llm-add-key').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
 describe('LLM assistance: acknowledging the destination', () => {
   const unacknowledged = llmStatus({ acknowledged: false })
 

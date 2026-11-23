@@ -31,7 +31,12 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   /** The Dataset on screen. A reply about any other is dropped. */
   let currentId: Id | null = null
 
-  const hasAccess = computed(() => !!status.value && status.value.mode !== 'none')
+  /** The account may use an LLM key: their own, or the shared one while it
+   * works. A shared key the usage meter cannot vouch for is not usable access,
+   * so the panel offers an own key and nothing may spend the shared one. */
+  const hasAccess = computed(
+    () => !!status.value && status.value.mode !== 'none' && status.value.shared_key_available !== false,
+  )
   const ready = computed(() => hasAccess.value && !!status.value?.acknowledged)
 
   async function loadStatus(datasetId: Id) {

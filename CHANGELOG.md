@@ -11,6 +11,17 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-23
+
+### Fixed
+
+- A shared key the usage meter cannot vouch for is treated as no usable
+  access (#166): when the status says `shared_key_available: false`, the panel
+  shows the backend's reason instead of the "Suggestions use the shared key…"
+  line, hides everything that would spend the shared key, and opens the
+  "Add your own API key" form straight away — saving a key still switches the
+  panel to the BYOK line. Older backends that omit the field are unaffected.
+
 ## [0.12.0] - 2026-11-18
 
 ### Added

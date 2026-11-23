@@ -115,7 +115,10 @@ watch(suggestions, (value) => emit('suggestions', value))
     <p v-if="notice" class="vmlb-muted" role="status">{{ notice }}</p>
 
     <template v-if="status">
-      <p v-if="status.mode === 'shared'" class="vmlb-llm-status">
+      <p v-if="status.mode === 'shared' && status.shared_key_available === false" class="vmlb-llm-status">
+        {{ status.shared_key_unavailable_reason ?? 'The shared LLM key is unavailable right now. Your own API key would still work.' }}
+      </p>
+      <p v-else-if="status.mode === 'shared'" class="vmlb-llm-status">
         Suggestions use the shared key. Text is sent to <strong>{{ status.destination }}</strong>.
         <span v-if="status.remaining_tokens !== null" class="vmlb-muted vmlb-num">{{ tokens(status.remaining_tokens) }} tokens left this month.</span>
       </p>
