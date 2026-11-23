@@ -137,7 +137,7 @@ watch(suggestions, (value) => emit('suggestions', value))
         <button class="vmlb-btn-primary" :disabled="isBusy" @click="acknowledge(datasetId)">Allow sending to {{ status.destination }}</button>
       </div>
 
-      <p v-if="budgetExhausted && status.mode === 'shared' && !error" class="vmlb-llm-warning" role="status">
+      <p v-if="budgetExhausted && status.mode === 'shared' && status.shared_key_available !== false && !error" class="vmlb-llm-warning" role="status">
         <Icon name="alert" /> You've used this month's limit on the shared key. Add your own API key to continue.
       </p>
 

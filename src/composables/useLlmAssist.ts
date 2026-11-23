@@ -35,7 +35,10 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
    * works. A shared key the usage meter cannot vouch for is not usable access,
    * so the panel offers an own key and nothing may spend the shared one. */
   const hasAccess = computed(
-    () => !!status.value && status.value.mode !== 'none' && status.value.shared_key_available !== false,
+    () =>
+      !!status.value &&
+      status.value.mode !== 'none' &&
+      (status.value.mode !== 'shared' || status.value.shared_key_available !== false),
   )
   const ready = computed(() => hasAccess.value && !!status.value?.acknowledged)
 
