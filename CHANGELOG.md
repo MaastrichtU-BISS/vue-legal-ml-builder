@@ -11,6 +11,17 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-23
+
+### Fixed
+
+- A shared key the usage meter cannot vouch for is treated as no usable
+  access (#166): when the status says `shared_key_available: false`, the panel
+  shows the backend's reason instead of the "Suggestions use the shared key…"
+  line, hides everything that would spend the shared key, and opens the
+  "Add your own API key" form straight away — saving a key still switches the
+  panel to the BYOK line. Older backends that omit the field are unaffected.
+
 ## [0.12.0] - 2026-11-18
 
 ### Added
@@ -517,7 +528,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.0...v0.10.1

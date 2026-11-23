@@ -302,6 +302,12 @@ export interface LlmStatus {
   remaining_tokens: number | null
   /** The most items one suggestions request may ask for. Older servers omit it. */
   max_sync_tasks?: number
+  /** Whether the shared key can be used right now: false only when it is this
+   * account's credential and its usage meter could not be asked. Older servers
+   * omit it, which counts as available. */
+  shared_key_available?: boolean
+  /** Why the shared key cannot be used, in words for the user. */
+  shared_key_unavailable_reason?: string | null
   /** Sent when asked about a Dataset: whether its Project acknowledged `destination`. */
   acknowledged?: boolean
 }

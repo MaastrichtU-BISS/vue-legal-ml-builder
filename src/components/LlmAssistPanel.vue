@@ -115,7 +115,10 @@ watch(suggestions, (value) => emit('suggestions', value))
     <p v-if="notice" class="vmlb-muted" role="status">{{ notice }}</p>
 
     <template v-if="status">
-      <p v-if="status.mode === 'shared'" class="vmlb-llm-status">
+      <p v-if="status.mode === 'shared' && status.shared_key_available === false" class="vmlb-llm-status">
+        {{ status.shared_key_unavailable_reason ?? 'The shared LLM key is unavailable right now. Your own API key would still work.' }}
+      </p>
+      <p v-else-if="status.mode === 'shared'" class="vmlb-llm-status">
         Suggestions use the shared key. Text is sent to <strong>{{ status.destination }}</strong>.
         <span v-if="status.remaining_tokens !== null" class="vmlb-muted vmlb-num">{{ tokens(status.remaining_tokens) }} tokens left this month.</span>
       </p>
@@ -134,7 +137,7 @@ watch(suggestions, (value) => emit('suggestions', value))
         <button class="vmlb-btn-primary" :disabled="isBusy" @click="acknowledge(datasetId)">Allow sending to {{ status.destination }}</button>
       </div>
 
-      <p v-if="budgetExhausted && status.mode === 'shared' && !error" class="vmlb-llm-warning" role="status">
+      <p v-if="budgetExhausted && status.mode === 'shared' && status.shared_key_available !== false && !error" class="vmlb-llm-warning" role="status">
         <Icon name="alert" /> You've used this month's limit on the shared key. Add your own API key to continue.
       </p>
 
