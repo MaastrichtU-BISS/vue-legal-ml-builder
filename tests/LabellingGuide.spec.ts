@@ -5,7 +5,7 @@ import GuideLabelsStep from '../src/components/GuideLabelsStep.vue'
 import LabellingGuide from '../src/components/LabellingGuide.vue'
 import type { ActiveLearningState, AnnotationStats, MLAdapter } from '../src/types'
 import { createTestAdapter } from './testAdapter'
-import { DEFAULT_TEMPLATE, llmAgreement, llmMethods, llmStatus, llmSuggestion } from './fixtures/llm'
+import { DEFAULT_TEMPLATE, llmAgreement, llmMethods, llmStatus, llmSuggestion, refusal } from './fixtures/llm'
 
 // The guided "Label with AI help" mode inside AnnotationWorkspace, driven by
 // what the fake adapter reports.
@@ -108,8 +108,8 @@ describe('the guide: which step it is on', () => {
 
     expect(currentStep(wrapper).text()).toContain('Connect AI')
     expect(stepHeading(wrapper).text()).toBe('Connect an AI')
-    // Until later tickets, the step shows today's controls inside the guide.
-    expect(guide(wrapper).find('[aria-label="LLM suggestions"]').exists()).toBe(true)
+    // The step's own key form, not today's panel.
+    expect(guide(wrapper).find('[aria-label="LLM suggestions"]').exists()).toBe(false)
     expect(guide(wrapper).find('input[type="password"]').exists()).toBe(true)
     wrapper.unmount()
   })
@@ -123,9 +123,8 @@ describe('the guide: which step it is on', () => {
   })
 
   it('moves on once sending is allowed in the step', async () => {
-    // Read by the guide, then by today's panel inside the step; acknowledged after the click.
-    const unacknowledged = llmStatus({ acknowledged: false })
-    const getLlmStatus = vi.fn().mockResolvedValueOnce(unacknowledged).mockResolvedValueOnce(unacknowledged).mockResolvedValue(llmStatus())
+    // Read by the guide on load; acknowledged after the click.
+    const getLlmStatus = vi.fn().mockResolvedValueOnce(llmStatus({ acknowledged: false })).mockResolvedValue(llmStatus())
     const { adapter, wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus } })
 
     await click(wrapper, 'Allow sending to openrouter.ai')
@@ -787,6 +786,604 @@ describe("a host's guide: 'shown'", () => {
     expect(guide(wrapper).exists()).toBe(true)
     // The stored choice is the student's; one visit doesn't change it.
     expect(localStorage.getItem('vmlb-guide-hidden:ds-1')).toBe('1')
+    wrapper.unmount()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Step 2, Connect AI, and step 3, Show it how (BAIGLE #194).
+// ---------------------------------------------------------------------------
+
+const noShared = () =>
+  llmStatus({ mode: 'none', destination: null, model: null, shared_key_allowed: false, shared_key_configured: false, remaining_tokens: null, acknowledged: false })
+const ownKey = (overrides = {}) =>
+  llmStatus({ mode: 'byok', destination: 'openrouter.ai', key: { base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-haiku-5.5' }, remaining_tokens: null, acknowledged: false, ...overrides })
+const fieldLabel = (wrapper: Wrapper, id: string) => wrapper.find(`label[for="${id}"]`)
+
+async function typeKey(wrapper: Wrapper, key = 'sk-test') {
+  const input = guide(wrapper).find('input[type="password"]')
+  await input.setValue(key)
+  return input
+}
+
+async function submitKey(wrapper: Wrapper) {
+  await guide(wrapper).find('form').trigger('submit')
+  await flushPromises()
+}
+
+describe('step 2, Connect AI: the key', () => {
+  it('offers the shared key first, straight to consent', async () => {
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(llmStatus({ acknowledged: false })) } })
+
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+    expect(guide(wrapper).text()).toContain("You can use this platform's shared AI.")
+    expect(guide(wrapper).find('input[type="password"]').exists()).toBe(false)
+    expect(button(wrapper, 'Use my own key instead')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('without a shared key, shows the own-key form with a plain line on keys and charges', async () => {
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()) } })
+
+    expect(guide(wrapper).text()).toContain(
+      'This platform has no shared AI. To get suggestions, add a key from an AI provider. A key is like a password that lets this platform use your account there; the provider may charge you for what it uses.',
+    )
+    expect(fieldLabel(wrapper, 'vmlb-guide-provider').text()).toBe('Provider')
+    expect(fieldLabel(wrapper, 'vmlb-guide-model').text()).toBe('Model')
+    expect(fieldLabel(wrapper, 'vmlb-guide-api-key').text()).toBe('API key')
+    expect(button(wrapper, 'Save key')).toBeDefined()
+    expect(button(wrapper, 'Label it myself instead')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('shows Checking your key… on the button while the key is saved', async () => {
+    let finish: (value: unknown) => void = () => undefined
+    const saveLlmKey = vi.fn(() => new Promise((resolve) => { finish = resolve }))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), saveLlmKey } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+
+    const busy = wrapper.findAll('button').find((b) => b.text() === 'Checking your key…')
+    expect(busy?.attributes('disabled')).toBeDefined()
+    expect(saveLlmKey).toHaveBeenCalledWith({ base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-haiku-5.5', api_key: 'sk-test' })
+    // The key leaves the form once sent.
+    expect((guide(wrapper).find('input[type="password"]').element as HTMLInputElement).value).toBe('')
+    finish({ base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-haiku-5.5' })
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['The base URL must point to a public host.'],
+    ['This base URL is not allowed on this platform.'],
+  ])('blames the address, not the key, when saving refuses the base URL: %s', async (message) => {
+    // legal-ml-core's PUT /llm/key: validate_byok_url refuses as credential_unusable.
+    const saveLlmKey = vi.fn().mockRejectedValue(refusal(message, 'credential_unusable'))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), saveLlmKey } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+
+    expect(alerts(wrapper)).toEqual([`That provider address can't be used: ${message}`])
+    expect(guide(wrapper).text()).not.toContain('refused by OpenRouter')
+    expect(guide(wrapper).text()).not.toContain('said:')
+    expect(button(wrapper, 'Save key')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it("says a platform that can't store keys plainly, without blaming the key or the address", async () => {
+    // legal-ml-core's PUT /llm/key: encrypt_key refuses as credential_unusable too.
+    const saveLlmKey = vi.fn().mockRejectedValue(refusal('Storing API keys is not configured on this platform.', 'credential_unusable'))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), saveLlmKey } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+
+    expect(alerts(wrapper)).toEqual(["Couldn't save your key: Storing API keys is not configured on this platform."])
+    wrapper.unmount()
+  })
+
+  it('blames the address when the key check refuses the base URL, and saves nothing', async () => {
+    // legal-ml-core's POST /llm/models: base_url_refused.
+    const listLlmModels = vi.fn().mockRejectedValue(refusal('The base URL must be a plain https URL.', 'base_url_refused'))
+    const saveLlmKey = vi.fn()
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels, saveLlmKey } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+
+    expect(alerts(wrapper)).toEqual(["That provider address can't be used: The base URL must be a plain https URL."])
+    expect(saveLlmKey).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('checks the key before saving it, and saves nothing when the provider refuses it', async () => {
+    // legal-ml-core's POST /llm/models: key_rejected, "The provider rejected this API key."
+    const listLlmModels = vi.fn().mockRejectedValue(refusal('The provider rejected this API key.', 'key_rejected'))
+    const saveLlmKey = vi.fn()
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels, saveLlmKey } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+
+    expect(listLlmModels).toHaveBeenCalledWith({ base_url: 'https://openrouter.ai/api/v1', api_key: 'sk-test' })
+    expect(saveLlmKey).not.toHaveBeenCalled()
+    expect(alerts(wrapper)).toEqual(['That key was refused by OpenRouter. Check it and paste it again.'])
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+    expect(guide(wrapper).text()).not.toContain('Your key works.')
+    wrapper.unmount()
+  })
+
+  it('shows Checking your key… while the key is checked before saving', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    const listLlmModels = vi.fn(() => new Promise((resolve) => { answer = resolve }))
+    const saveLlmKey = vi.fn().mockResolvedValue({ base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-haiku-5.5' })
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels, saveLlmKey } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+
+    expect(button(wrapper, 'Checking your key…')).toBeDefined()
+    expect(saveLlmKey).not.toHaveBeenCalled()
+    answer({ models: [{ id: 'anthropic/claude-haiku-5.5' }] })
+    await flushPromises()
+    expect(saveLlmKey).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('says the key works only after the provider accepted it, and checks it once', async () => {
+    const listLlmModels = vi.fn().mockResolvedValue({ models: [{ id: 'anthropic/claude-haiku-5.5' }] })
+    const getLlmStatus = vi.fn().mockResolvedValueOnce(noShared()).mockResolvedValue(ownKey())
+    const { adapter, wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus, listLlmModels } })
+    await (await typeKey(wrapper)).trigger('change')
+    await flushPromises()
+    await submitKey(wrapper)
+
+    // The check on paste passed for this key, so saving doesn't run it again.
+    expect(listLlmModels).toHaveBeenCalledTimes(1)
+    expect(adapter.saveLlmKey).toHaveBeenCalledTimes(1)
+    expect(guide(wrapper).text()).toContain("Your key works. One thing first: to suggest labels, the text of this project's items is sent to openrouter.ai.")
+    wrapper.unmount()
+  })
+
+  it("saves a key the provider couldn't be asked about, and says it is saved, not that it works", async () => {
+    // legal-ml-core's POST /llm/models: provider_unreachable (502).
+    const listLlmModels = vi.fn().mockRejectedValue(refusal('The provider could not be reached. Check the base URL and try again.', 'provider_unreachable'))
+    const getLlmStatus = vi.fn().mockResolvedValueOnce(noShared()).mockResolvedValue(ownKey())
+    const { adapter, wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus, listLlmModels } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+
+    expect(adapter.saveLlmKey).toHaveBeenCalledTimes(1)
+    expect(guide(wrapper).text()).toContain("Your key is saved. One thing first: to suggest labels, the text of this project's items is sent to openrouter.ai.")
+    expect(guide(wrapper).text()).not.toContain('Your key works.')
+    wrapper.unmount()
+  })
+
+  it('keeps a save asked for while the pasted key is still being checked, and saves once after', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    const listLlmModels = vi.fn(() => new Promise((resolve) => { answer = resolve }))
+    const saveLlmKey = vi.fn().mockResolvedValue({ base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-haiku-5.5' })
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels, saveLlmKey } })
+    const key = await typeKey(wrapper)
+
+    // Clicking Save straight after pasting: the field's change (on blur) and the submit in one tick.
+    void key.trigger('change')
+    void guide(wrapper).find('form').trigger('submit')
+    await flushPromises()
+    expect(saveLlmKey).not.toHaveBeenCalled()
+    expect(button(wrapper, 'Checking your key…')).toBeDefined()
+
+    answer({ models: [{ id: 'anthropic/claude-haiku-5.5' }] })
+    await flushPromises()
+    expect(listLlmModels).toHaveBeenCalledTimes(1)
+    expect(saveLlmKey).toHaveBeenCalledTimes(1)
+    expect(saveLlmKey).toHaveBeenCalledWith({ base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-haiku-5.5', api_key: 'sk-test' })
+    wrapper.unmount()
+  })
+
+  it('keeps a click on Save made while the pasted key is being checked, and saves the model the check picked', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    const listLlmModels = vi.fn(() => new Promise((resolve) => { answer = resolve }))
+    const saveLlmKey = vi.fn().mockResolvedValue({ base_url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-x' })
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels, saveLlmKey } })
+    const key = await typeKey(wrapper)
+
+    // As in a browser: leaving the field starts the check and the page redraws before the click lands.
+    await key.trigger('change')
+    await button(wrapper, 'Checking your key…')!.trigger('click')
+    await flushPromises()
+    expect(saveLlmKey).not.toHaveBeenCalled()
+
+    // The provider doesn't offer the default model, so the check picks its first one.
+    answer({ models: [{ id: 'openai/gpt-x' }] })
+    await flushPromises()
+    expect(listLlmModels).toHaveBeenCalledTimes(1)
+    expect(saveLlmKey).toHaveBeenCalledTimes(1)
+    expect(saveLlmKey).toHaveBeenCalledWith({ base_url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-x', api_key: 'sk-test' })
+    wrapper.unmount()
+  })
+
+  it('leaves the key out of password managers', async () => {
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()) } })
+    const key = guide(wrapper).find('input[type="password"]')
+
+    expect(key.attributes('autocomplete')).toBe('new-password')
+    expect(key.attributes('data-1p-ignore')).toBeDefined()
+    expect(key.attributes('data-lpignore')).toBe('true')
+    wrapper.unmount()
+  })
+
+  it("checks the key by listing the provider's models, and offers them to pick from", async () => {
+    const listLlmModels = vi.fn().mockResolvedValue({ models: [{ id: 'openai/gpt-x' }, { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku' }] })
+    const { adapter, wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels } })
+    const key = await typeKey(wrapper)
+    await key.trigger('change')
+    await flushPromises()
+
+    expect(listLlmModels).toHaveBeenCalledWith({ base_url: 'https://openrouter.ai/api/v1', api_key: 'sk-test' })
+    const options = guide(wrapper).findAll('select#vmlb-guide-model option').map((o) => o.text())
+    expect(options).toEqual(['anthropic/claude-haiku-5.5 · Claude Haiku', 'openai/gpt-x'])
+    await guide(wrapper).find('select#vmlb-guide-model').setValue('openai/gpt-x')
+    await submitKey(wrapper)
+    expect(adapter.saveLlmKey).toHaveBeenCalledWith({ base_url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-x', api_key: 'sk-test' })
+    wrapper.unmount()
+  })
+
+  it('says when the provider refuses the key while listing its models', async () => {
+    const listLlmModels = vi.fn().mockRejectedValue(refusal('The provider rejected this API key.', 'key_rejected'))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels } })
+    await (await typeKey(wrapper)).trigger('change')
+    await flushPromises()
+
+    expect(alerts(wrapper).join(' ')).toContain('That key was refused by OpenRouter. Check it and paste it again.')
+    // The model stays a text field, so saving is never blocked.
+    expect(guide(wrapper).find('input#vmlb-guide-model').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it("saves nothing for a key the server says has characters a key can't contain", async () => {
+    // legal-ml-core's POST /llm/models: 400 invalid_request, BAD_KEY.
+    const listLlmModels = vi.fn().mockRejectedValue(refusal("The API key has characters an API key can't contain.", 'invalid_request'))
+    const saveLlmKey = vi.fn()
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels, saveLlmKey } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+
+    expect(saveLlmKey).not.toHaveBeenCalled()
+    expect(alerts(wrapper).join(' ')).toContain("The API key has characters an API key can't contain. Check it and paste it again.")
+    wrapper.unmount()
+  })
+
+  it('asks the provider again for a key it refused before, in case the account was fixed', async () => {
+    // Typing the key checks it; Save asks again rather than trusting the refusal.
+    const listLlmModels = vi.fn()
+      .mockRejectedValueOnce(refusal('The provider rejected this API key.', 'key_rejected'))
+      .mockRejectedValueOnce(refusal('The provider rejected this API key.', 'key_rejected'))
+      .mockResolvedValue({ models: [{ id: 'anthropic/claude-haiku-5.5' }] })
+    const saveLlmKey = vi.fn().mockResolvedValue({ base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-haiku-5.5' })
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels, saveLlmKey } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+    expect(saveLlmKey).not.toHaveBeenCalled()
+
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+    expect(listLlmModels.mock.calls.length).toBeGreaterThanOrEqual(3)
+    expect(saveLlmKey).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('says when the shared key’s meter is down, with the own-key form open', async () => {
+    const down = llmStatus({ shared_key_available: false, acknowledged: false })
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(down) } })
+
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+    expect(alerts(wrapper).join(' ')).toContain("The shared AI can't be used right now")
+    expect(guide(wrapper).find('input[type="password"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('returns to Connect AI when the shared allowance is used up, keeping what was done', async () => {
+    const spent = llmStatus({ remaining_tokens: 0, acknowledged: true })
+    const { wrapper } = await mounted({
+      labels: ['Civil', 'Criminal'],
+      counts: { Civil: 6, Criminal: 6 },
+      overrides: { getLlmStatus: vi.fn().mockResolvedValue(spent) },
+    })
+
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+    expect(alerts(wrapper).join(' ')).toContain(
+      "This month's shared AI allowance is used up. The suggestions already made are kept. Add your own key to carry on, or label the rest yourself.",
+    )
+    expect(guide(wrapper).find('input[type="password"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+})
+
+describe('step 2, Connect AI: consent', () => {
+  it('after a saved key, says what is sent and where, and that held-out items never are', async () => {
+    const getLlmStatus = vi.fn().mockResolvedValueOnce(noShared()).mockResolvedValue(ownKey())
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+
+    const text = guide(wrapper).text()
+    // No key check here (the adapter can't list models), so the key is saved, not known to work.
+    expect(text).toContain("Your key is saved. One thing first: to suggest labels, the text of this project's items is sent to openrouter.ai.")
+    expect(text).toContain('Only the item text, your label descriptions and a few items you labelled, as examples, are sent.')
+    expect(text).toContain('Items kept aside to test your model are never sent.')
+    expect(button(wrapper, 'Allow sending to openrouter.ai')).toBeDefined()
+    expect(button(wrapper, 'Label it myself instead')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it("says Couldn't save that. Try again. when the consent isn't saved", async () => {
+    const acknowledgeLlmDestination = vi.fn().mockRejectedValue(new Error('Server error'))
+    const { wrapper } = await mounted({
+      labels: ['Civil', 'Criminal'],
+      overrides: { getLlmStatus: vi.fn().mockResolvedValue(ownKey()), acknowledgeLlmDestination },
+    })
+    await click(wrapper, 'Allow sending to openrouter.ai')
+
+    expect(alerts(wrapper)).toContain("Couldn't save that. Try again.")
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+    wrapper.unmount()
+  })
+
+  it('says where the AI now sends text when the destination changed before Allow', async () => {
+    // legal-ml-core's POST .../acknowledgement: 409 destination_changed, with the new destination.
+    const acknowledgeLlmDestination = vi.fn().mockRejectedValue(
+      refusal('The LLM destination has changed. Please review it again.', 'destination_changed', { destination: 'api.openai.com' }),
+    )
+    const getLlmStatus = vi.fn().mockResolvedValueOnce(ownKey()).mockResolvedValue(ownKey({ destination: 'api.openai.com' }))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus, acknowledgeLlmDestination } })
+    await click(wrapper, 'Allow sending to openrouter.ai')
+
+    expect(alerts(wrapper)).toContain('The AI destination changed to api.openai.com. Check it and allow again.')
+    expect(alerts(wrapper)).not.toContain("Couldn't save that. Try again.")
+    expect(button(wrapper, 'Allow sending to api.openai.com')).toBeDefined()
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+    wrapper.unmount()
+  })
+
+  it('hands off to Show it how once sending is allowed', async () => {
+    const getLlmStatus = vi.fn().mockResolvedValueOnce(ownKey()).mockResolvedValue(ownKey({ acknowledged: true }))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus } })
+    await click(wrapper, 'Allow sending to openrouter.ai')
+
+    expect(currentStep(wrapper).text()).toContain('Show it how')
+    expect(guide(wrapper).text()).toContain('Connected. Before it suggests anything, show it 10 examples so it learns what you mean. About 5 minutes.')
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['the consent', () => llmStatus({ acknowledged: false })],
+    ['the key form', noShared],
+  ])('Label it myself instead, from %s, hides the guide for this Dataset and remembers it', async (_where, status) => {
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(status()) } })
+    await click(wrapper, 'Label it myself instead')
+
+    expect(guide(wrapper).exists()).toBe(false)
+    expect(localStorage.getItem('vmlb-guide-hidden:ds-1')).toBe('1')
+    wrapper.unmount()
+  })
+})
+
+describe('step 3, Show it how', () => {
+  const liveCount = (wrapper: Wrapper) => wrapper.find('[aria-live="polite"]')
+
+  it('shows a count per label, marking those with enough, and the total out of 10 in a polite live region', async () => {
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], counts: { Civil: 3, Criminal: 1 }, stats: { total: 40, annotated: 4, percentage: 10 } })
+
+    expect(currentStep(wrapper).text()).toContain('Show it how')
+    expect(guide(wrapper).text()).toContain(
+      'Label a few items yourself first. The AI learns what you mean from these: at least 3 of each label, 10 in total.',
+    )
+    const chips = guide(wrapper).find('ul[aria-label="Examples so far"]').findAll('li').map((li) => li.text())
+    expect(chips[0]).toContain('Done:')
+    expect(chips[0]).toContain('Civil 3 of 3')
+    expect(chips[1]).toContain('Criminal 1 of 3')
+    expect(chips[1]).not.toContain('Done:')
+    expect(liveCount(wrapper).text()).toBe('4 of 10 examples labelled.')
+    wrapper.unmount()
+  })
+
+  it('keeps the item in its own box below the panel', async () => {
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], counts: { Civil: 1, Criminal: 1 } })
+
+    expect(currentStep(wrapper).text()).toContain('Show it how')
+    expect(guide(wrapper).text()).not.toContain('Clause one.')
+    const html = wrapper.html()
+    expect(html.indexOf('Clause one.')).toBeGreaterThan(html.indexOf('Label with AI help'))
+    wrapper.unmount()
+  })
+
+  it('says a held-out item is kept aside and never seen by the AI', async () => {
+    const { wrapper } = await mounted({
+      labels: ['Civil', 'Criminal'],
+      counts: { Civil: 1, Criminal: 1 },
+      overrides: { getNextAnnotationTask: vi.fn().mockResolvedValue({ task: { ...item, is_holdout: true }, stats: { total: 40, annotated: 2, percentage: 5 } }) },
+    })
+
+    expect(guide(wrapper).text()).toContain(
+      "This item is kept aside to test your model later. You label these yourself; the AI never sees them. It doesn't count toward the 10.",
+    )
+    wrapper.unmount()
+  })
+
+  it("says when a label can't reach 3 because too few items are left", async () => {
+    // Two items left: Other can reach 2 at most; Civil can still reach 3.
+    const { wrapper } = await mounted({
+      labels: ['Civil', 'Criminal', 'Other'],
+      counts: { Civil: 1, Criminal: 8, Other: 0 },
+      stats: { total: 11, annotated: 9, percentage: 82 },
+    })
+
+    expect(currentStep(wrapper).text()).toContain('Show it how')
+    expect(guide(wrapper).text()).toContain("Only 2 items are left to label, so Other can reach at most 2. That's enough to continue.")
+    expect(guide(wrapper).text()).not.toContain('so Civil can reach')
+    expect(liveCount(wrapper).text()).toBe('9 of 10 examples labelled.')
+    wrapper.unmount()
+  })
+
+  it('says one item is left in the singular', async () => {
+    const { wrapper } = await mounted({
+      labels: ['Civil', 'Criminal', 'Other'],
+      counts: { Civil: 4, Criminal: 4, Other: 1 },
+      stats: { total: 10, annotated: 9, percentage: 90 },
+    })
+
+    expect(guide(wrapper).text()).toContain("Only 1 item is left to label, so Other can reach at most 2. That's enough to continue.")
+    wrapper.unmount()
+  })
+
+  it('folds to one line with a Details toggle, for phones', async () => {
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], counts: { Civil: 3, Criminal: 3 }, stats: { total: 40, annotated: 6, percentage: 15 } })
+
+    const details = button(wrapper, 'Details')!
+    expect(details.attributes('aria-expanded')).toBe('false')
+    const body = wrapper.find(`#${details.attributes('aria-controls')}`)
+    expect(body.exists()).toBe(true)
+    expect(body.text()).toContain('Show the AI how you label')
+    expect(details.element.parentElement!.textContent).toContain('Step 3 of 6 · 6 of 10 examples')
+    await details.trigger('click')
+    expect(details.attributes('aria-expanded')).toBe('true')
+    wrapper.unmount()
+  })
+
+  it('offers no Details toggle in other steps', async () => {
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()) } })
+
+    expect(button(wrapper, 'Details')).toBeUndefined()
+    wrapper.unmount()
+  })
+})
+
+describe('waiting sentences save on consent with the guide hidden (BAIGLE #194 follow-up)', () => {
+  it("are saved by today's panel when the student allows sending there", async () => {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '1')
+    localStorage.setItem('vmlb-guide-descriptions:ds-1', JSON.stringify({ Civil: 'Private disputes.', Criminal: 'Offences.' }))
+    const updateLlmPrompt = vi.fn(async (_id: string, edit: { template: string; definitions: Record<string, string> }) => ({ version: 1, ...edit }))
+    const getLlmStatus = vi.fn().mockResolvedValue(llmStatus({ acknowledged: false }))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus, updateLlmPrompt } })
+    expect(guide(wrapper).exists()).toBe(false)
+    expect(updateLlmPrompt).not.toHaveBeenCalled()
+
+    getLlmStatus.mockResolvedValue(llmStatus({ acknowledged: true }))
+    await click(wrapper, 'Allow sending to openrouter.ai')
+    await flushPromises()
+
+    expect(updateLlmPrompt).toHaveBeenCalledTimes(1)
+    expect(updateLlmPrompt).toHaveBeenCalledWith('ds-1', { template: DEFAULT_TEMPLATE, definitions: { Civil: 'Private disputes.', Criminal: 'Offences.' } })
+    expect(localStorage.getItem('vmlb-guide-descriptions:ds-1')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it("doesn't announce a new prompt version for this save, which the student didn't make", async () => {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '1')
+    localStorage.setItem('vmlb-guide-descriptions:ds-1', JSON.stringify({ Civil: 'Private disputes.' }))
+    const updateLlmPrompt = vi.fn(async (_id: string, edit: { template: string; definitions: Record<string, string> }) => ({ version: 1, ...edit }))
+    const getLlmStatus = vi.fn().mockResolvedValue(llmStatus({ acknowledged: false }))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus, updateLlmPrompt } })
+
+    getLlmStatus.mockResolvedValue(llmStatus({ acknowledged: true }))
+    await click(wrapper, 'Allow sending to openrouter.ai')
+    await flushPromises()
+
+    expect(updateLlmPrompt).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).not.toContain('Saved as version')
+    wrapper.unmount()
+  })
+
+  it('stay waiting when the prompt save is refused', async () => {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '1')
+    localStorage.setItem('vmlb-guide-descriptions:ds-1', JSON.stringify({ Civil: 'Private disputes.' }))
+    const updateLlmPrompt = vi.fn().mockRejectedValue(new Error('Refused'))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { updateLlmPrompt } })
+
+    expect(updateLlmPrompt).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem('vmlb-guide-descriptions:ds-1')).not.toBeNull()
+    wrapper.unmount()
+  })
+})
+
+describe('phones: the folded Show it how (PR #18 review)', () => {
+  // The guide folds Show it how under this media query; jsdom has no matchMedia.
+  function onPhone() {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({ matches: query === '(max-width: 640px)', media: query, addEventListener() {}, removeEventListener() {} }),
+    })
+  }
+  afterEach(() => {
+    delete (window as { matchMedia?: unknown }).matchMedia
+  })
+
+  it('opens Details after Allow, so the hand-off line is seen, and focuses the step heading', async () => {
+    onPhone()
+    const getLlmStatus = vi.fn().mockResolvedValueOnce(ownKey()).mockResolvedValue(ownKey({ acknowledged: true }))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus } })
+    await click(wrapper, 'Allow sending to openrouter.ai')
+    await flushPromises()
+
+    expect(currentStep(wrapper).text()).toContain('Show it how')
+    expect(button(wrapper, 'Details')!.attributes('aria-expanded')).toBe('true')
+    expect(guide(wrapper).text()).toContain('Connected. Before it suggests anything, show it 10 examples so it learns what you mean.')
+    expect(document.activeElement).toBe(stepHeading(wrapper).element)
+    wrapper.unmount()
+  })
+
+  it('moves focus to Details, not the folded-away heading, when the step becomes Show it how', async () => {
+    onPhone()
+    const { wrapper } = await mounted()
+    await fillLabels(wrapper, [['Civil', 'Private rights.'], ['Criminal', 'Offences.']])
+    await click(wrapper, 'Save labels')
+    await flushPromises()
+
+    const details = button(wrapper, 'Details')!
+    expect(details.attributes('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(details.element)
+    wrapper.unmount()
+  })
+
+  it('opens with no hand-off line when access arrives without Allow', async () => {
+    // A key saved for a destination this Project already allowed: ready rises, but nothing was allowed now.
+    const getLlmStatus = vi.fn().mockResolvedValueOnce(noShared()).mockResolvedValue(ownKey({ acknowledged: true }))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+
+    expect(currentStep(wrapper).text()).toContain('Show it how')
+    expect(guide(wrapper).text()).not.toContain('Connected. Before it suggests anything')
+    expect(guide(wrapper).text()).toContain('About 5 minutes')
+    wrapper.unmount()
+  })
+})
+
+describe("waiting sentences with the guide on a step that shows today's panel (PR #18 review)", () => {
+  it('are saved once, by the guide, not again by the embedded panel', async () => {
+    localStorage.setItem('vmlb-guide-descriptions:ds-1', JSON.stringify({ Civil: 'Private disputes.', Criminal: 'Offences.' }))
+    const updateLlmPrompt = vi.fn(async (_id: string, edit: { template: string; definitions: Record<string, string> }) => ({ version: 1, ...edit }))
+    // The prompt answers only once both the guide and the panel have asked for
+    // it, so both still see the sentences waiting when their access arrives.
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const getLlmPrompt = vi.fn(async () => {
+      await gate
+      return { version: 0, template: DEFAULT_TEMPLATE, definitions: {} }
+    })
+    const { wrapper } = await mounted({
+      labels: ['Civil', 'Criminal'],
+      counts: { Civil: 6, Criminal: 6 },
+      stats: { total: 40, annotated: 12, percentage: 30 },
+      overrides: { updateLlmPrompt, getLlmPrompt },
+    })
+    await flushPromises()
+    release()
+    await flushPromises()
+
+    expect(currentStep(wrapper).text()).toContain('Try it')
+    // The embedded panel is mounted, and its own access arrived (ready turned true) as it loaded.
+    expect(guide(wrapper).find('section[aria-label="LLM suggestions"]').exists()).toBe(true)
+    expect(guide(wrapper).text()).toContain('Suggest labels for this batch')
+    expect(updateLlmPrompt).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem('vmlb-guide-descriptions:ds-1')).toBeNull()
     wrapper.unmount()
   })
 })

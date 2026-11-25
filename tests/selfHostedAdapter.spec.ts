@@ -187,6 +187,16 @@ describe('createSelfHostedAdapter LLM methods', () => {
     expect(deleted.calls).toEqual([expect.objectContaining({ url: '/api/llm/key', method: 'DELETE' })])
   })
 
+  it("lists a provider's models with a typed key, or the saved one", async () => {
+    const models = { models: [{ id: 'openai/gpt-x', name: 'GPT X' }] }
+    const typed = await call(models, (a) => a.listLlmModels!({ base_url: 'https://openrouter.ai/api/v1', api_key: 'sk-1' }))
+    expect(typed.calls).toEqual([expect.objectContaining({ url: '/api/llm/models', method: 'POST', body: { base_url: 'https://openrouter.ai/api/v1', api_key: 'sk-1' } })])
+    expect(typed.result).toEqual(models)
+
+    const saved = await call(models, (a) => a.listLlmModels!({ use_saved_key: true }))
+    expect(saved.calls).toEqual([expect.objectContaining({ url: '/api/llm/models', method: 'POST', body: { use_saved_key: true } })])
+  })
+
   it('acknowledges the destination the user saw', async () => {
     const ack = { destination: 'openrouter.ai', created_at: '2026-11-05T10:00:00' }
     const { calls, result } = await call(ack, (a) => a.acknowledgeLlmDestination!('ds-1', 'openrouter.ai'))

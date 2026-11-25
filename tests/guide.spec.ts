@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   GUIDE_STEPS,
   agreementPassed,
+  definitionsToFill,
+  showTargets,
   guideStep,
   isSingleLabelTask,
   labelsShortOfReady,
@@ -173,5 +175,49 @@ describe('guide storage', () => {
     expect(readPendingDescriptions('ds-1')).toEqual({ Civil: 'About private rights.' })
     writePendingDescriptions('ds-1', null)
     expect(readPendingDescriptions('ds-1')).toBeNull()
+  })
+})
+
+describe('showTargets (BAIGLE #194)', () => {
+  it('asks for 3 per label and 10 in total while the queue is open', () => {
+    const targets = showTargets(progress({ confirmedPerLabel: { Civil: 3, Criminal: 1 }, confirmedTotal: 4, pending: null }))
+    expect(targets.labels).toEqual([
+      { label: 'Civil', count: 3, target: 3, capped: false },
+      { label: 'Criminal', count: 1, target: 3, capped: false },
+    ])
+    expect(targets.totalTarget).toBe(10)
+  })
+
+  it('lets a label, or the total, that cannot reach its target any more continue', () => {
+    // Two items left: Other can reach 2 at most, so it doesn't hold the step; Civil still can and does.
+    const p = progress({
+      labels: ['Civil', 'Criminal', 'Other'],
+      confirmedPerLabel: { Civil: 1, Criminal: 8, Other: 0 },
+      confirmedTotal: 9,
+      pending: 2,
+      agreement: null,
+    })
+    expect(showTargets(p).labels[2]).toEqual({ label: 'Other', count: 0, target: 2, capped: true })
+    expect(guideStep(p)).toBe('show')
+    const civilDone = { ...p, confirmedPerLabel: { Civil: 3, Criminal: 8, Other: 0 }, confirmedTotal: 11 }
+    expect(guideStep(civilDone)).toBe('try')
+    // Moved on, but Other never had its 3: skipped, not done.
+    expect(stepsMet(civilDone).show).toBe(false)
+    // The total too: 6 labelled and 1 left can't make 10.
+    expect(guideStep(progress({ confirmedPerLabel: { Civil: 3, Criminal: 3 }, confirmedTotal: 6, pending: 1, agreement: null }))).toBe('try')
+  })
+
+  it('has no per-label counts when the server cannot count them', () => {
+    expect(showTargets(progress({ confirmedPerLabel: null })).labels).toEqual([])
+  })
+})
+
+describe('definitionsToFill', () => {
+  it('fills only empty definitions from sentences waiting since an earlier visit', () => {
+    expect(definitionsToFill({ Civil: 'Kept.', Criminal: '' }, { Civil: 'New.', Criminal: 'Offences.' }, false)).toEqual({ Criminal: 'Offences.' })
+  })
+
+  it('replaces definitions with sentences typed this visit, leaving out unchanged and empty ones', () => {
+    expect(definitionsToFill({ Civil: 'Old.', Criminal: 'Same.' }, { Civil: 'New.', Criminal: 'Same.', Other: ' ' }, true)).toEqual({ Civil: 'New.' })
   })
 })

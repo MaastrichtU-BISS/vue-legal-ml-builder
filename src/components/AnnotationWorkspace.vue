@@ -359,6 +359,7 @@ async function onLabelHoldout() {
       :stats-loading="isLoading"
       :labels-version="labelsVersion"
       :current-task-id="task?.id ?? null"
+      :current-holdout="holdout || !!task?.is_holdout"
       @hide="setGuide(false)"
       @loaded="onGuideLoaded"
       @labels-saved="onGuideLabels"

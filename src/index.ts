@@ -153,8 +153,10 @@ export type { LensCopy, LensFamily, LensPoint } from './lens/modelLens'
 export { adviseFor, decisionTreeFor, IMBALANCE_RATIO, SMALL_DATASET_ROWS } from './lens/modelGuide'
 export { ANNOTATION_STATE, annotationControls, annotationState, labelledRows, nothingToAnnotateReason } from './annotation/annotationState'
 export type { AnnotationControls, AnnotationScreenState } from './annotation/annotationState'
-export { GUIDE_STEPS, SINGLE_LABEL_TASK_TYPES, agreementPassed, guideStep, isSingleLabelTask, labelsShortOfReady, stepsMet, validateLabels } from './annotation/guide'
-export type { GuideProgress, GuideStep, GuideStepKey, LabelDraft, LabelErrors } from './annotation/guide'
+export { GUIDE_STEPS, SHOW_PER_LABEL, SHOW_TOTAL, SINGLE_LABEL_TASK_TYPES, agreementPassed, guideStep, isSingleLabelTask, labelsShortOfReady, showTargets, stepsMet, validateLabels } from './annotation/guide'
+export type { GuideProgress, GuideStep, GuideStepKey, LabelDraft, LabelErrors, ShowLabelTarget, ShowTargets } from './annotation/guide'
+export { DEFAULT_LLM_PROVIDER, LLM_PROVIDERS, llmModelOptions, llmProviderById } from './annotation/llmProviders'
+export type { LlmProvider } from './annotation/llmProviders'
 export { kitLabelset, labelColour } from './annotation/labelColours'
 export { assignmentChanged, labelSourceText } from './annotation/review'
 export { STRATEGY_COPY, holdoutClassText, retrainPrompt, trainingWarning, verificationText } from './annotation/activeLearning'
@@ -181,6 +183,8 @@ export type {
   GenerationSource,
   Id,
   LlmAcknowledgement,
+  LlmModelOption,
+  LlmModelsRequest,
   LlmAgreement,
   LlmErrorCode,
   LlmEstimate,

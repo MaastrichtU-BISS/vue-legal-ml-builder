@@ -13,6 +13,7 @@ describe('MLAdapter LLM methods', () => {
       | 'getLlmStatus'
       | 'saveLlmKey'
       | 'deleteLlmKey'
+      | 'listLlmModels'
       | 'acknowledgeLlmDestination'
       | 'getLlmPrompt'
       | 'updateLlmPrompt'

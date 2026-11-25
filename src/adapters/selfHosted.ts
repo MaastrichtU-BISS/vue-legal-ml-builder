@@ -309,6 +309,9 @@ export function createSelfHostedAdapter(opts: SelfHostedAdapterOptions): MLAdapt
     async deleteLlmKey(): Promise<void> {
       await del('/llm/key')
     },
+    async listLlmModels(request) {
+      return post('/llm/models', request)
+    },
     async acknowledgeLlmDestination(datasetId: Id, destination: string) {
       return post(`/llm/datasets/${datasetId}/acknowledgement`, { destination })
     },
