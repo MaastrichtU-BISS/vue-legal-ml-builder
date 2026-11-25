@@ -1,6 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import AnnotationWorkspace from '../src/components/AnnotationWorkspace.vue'
+import ActiveLearningPanel from '../src/components/ActiveLearningPanel.vue'
 import type { AnnotationStats, MLAdapter } from '../src/types'
 import { createTestAdapter } from './testAdapter'
 import { DEFAULT_TEMPLATE, llmAgreement, llmMethods, llmStatus, llmSuggestion } from './fixtures/llm'
@@ -415,6 +416,32 @@ describe('the guide: accessibility', () => {
     expect(stepHeading(wrapper).text()).toBe('Show the AI how you label')
     expect(document.activeElement).toBe(stepHeading(wrapper).element)
     expect(stepHeading(wrapper).attributes('tabindex')).toBe('-1')
+    wrapper.unmount()
+  })
+})
+
+describe('the guide is the one next action', () => {
+  const alState = { getActiveLearningState: vi.fn().mockResolvedValue({ active: false }) }
+
+  it('leaves out "Let the Model choose what to label next" while the guide shows', async () => {
+    const { wrapper } = await mounted({ overrides: alState })
+    expect(guide(wrapper).exists()).toBe(true)
+    expect(wrapper.findComponent(ActiveLearningPanel).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps it in the hidden-guide view', async () => {
+    const { wrapper } = await mounted({ overrides: alState, props: { guide: 'hidden' } })
+    expect(guide(wrapper).exists()).toBe(false)
+    expect(wrapper.findComponent(ActiveLearningPanel).exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('labels every field with visible text, not only a placeholder', async () => {
+    const { wrapper } = await mounted()
+    const labels = wrapper.findAll('label.vmlb-guide-field-label').map((l) => l.text())
+    expect(labels.filter((t) => t.startsWith('Label name')).length).toBeGreaterThanOrEqual(2)
+    expect(labels.filter((t) => t.startsWith('When to use it')).length).toBeGreaterThanOrEqual(2)
     wrapper.unmount()
   })
 })

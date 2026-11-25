@@ -330,8 +330,10 @@ async function onLabelHoldout() {
       </div>
     </div>
 
+    <!-- The guide is the one next action while it shows; ordering by the Model
+         stays in the hidden-guide (expert) view. -->
     <ActiveLearningPanel
-      v-if="showLoop && adapter && datasetId"
+      v-if="showLoop && !showGuide && adapter && datasetId"
       :adapter="adapter"
       :dataset-id="datasetId"
       :can-start="!!task"

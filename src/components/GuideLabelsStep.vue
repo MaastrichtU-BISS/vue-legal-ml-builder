@@ -91,7 +91,8 @@ async function save() {
             </span>
           </template>
           <template v-else>
-            <label class="vmlb-guide-sr" :for="nameId(i)">Label name {{ i + 1 }}</label>
+            <!-- Visible labels: a placeholder alone disappears once the student types. -->
+            <label class="vmlb-guide-field-label" :for="nameId(i)">Label name<span class="vmlb-guide-sr"> {{ i + 1 }}</span></label>
             <input
               :id="nameId(i)"
               v-model="row.name"
@@ -106,7 +107,7 @@ async function save() {
           </template>
         </div>
         <div class="vmlb-guide-label-desc">
-          <label class="vmlb-guide-sr" :for="descriptionId(i)">When to use {{ row.name.trim() || `label ${i + 1}` }}</label>
+          <label class="vmlb-guide-field-label" :for="descriptionId(i)">When to use it<span class="vmlb-guide-sr"> ({{ row.name.trim() || `label ${i + 1}` }})</span></label>
           <input
             :id="descriptionId(i)"
             v-model="row.description"
@@ -151,6 +152,7 @@ async function save() {
 .vmlb-guide-label-list { display: flex; flex-direction: column; gap: var(--vmlb-space-sm); margin: 0; padding: 0; list-style: none; }
 .vmlb-guide-label-row { display: grid; grid-template-columns: 12rem 1fr auto; gap: var(--vmlb-space-xs); align-items: start; }
 .vmlb-guide-input { min-height: 2.75rem; }
+.vmlb-guide-field-label { display: block; margin-bottom: var(--vmlb-space-2xs); color: var(--vmlb-text-muted); font-size: var(--vmlb-font-size-sm); }
 .vmlb-guide-locked {
   display: flex; align-items: center; gap: var(--vmlb-space-xs);
   min-height: 2.75rem; padding: 0 var(--vmlb-space-sm);
@@ -164,6 +166,8 @@ async function save() {
   color: var(--vmlb-text-muted); font-size: var(--vmlb-font-size-xs); white-space: nowrap;
 }
 .vmlb-guide-remove { min-height: 2.75rem; }
+/* Line the button up with the inputs under their visible labels. */
+@media (min-width: 641px) { .vmlb-guide-remove { margin-top: calc(var(--vmlb-font-size-sm) * 1.5 + var(--vmlb-space-2xs)); } }
 .vmlb-guide-field-error { margin: var(--vmlb-space-2xs) 0 0; color: var(--vmlb-error); font-size: var(--vmlb-font-size-sm); }
 .vmlb-guide-actions { display: flex; flex-wrap: wrap; gap: var(--vmlb-space-sm); }
 .vmlb-guide-target { min-height: 2.75rem; }
