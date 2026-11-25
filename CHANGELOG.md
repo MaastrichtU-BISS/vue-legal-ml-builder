@@ -11,6 +11,56 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-25
+
+### Added
+
+- **The guide's step 2, "Connect AI", has its own words and controls**
+  (BAIGLE #194). The shared key is offered first when the account has it,
+  going straight to consent; "Use my own key instead" is beside it. Without
+  usable shared access, an inline own-key form (Provider, Model, API key)
+  says in one plain line what a key is and that the provider may charge.
+  With an adapter that lists models, pasting the key checks it and turns the
+  Model field into the provider's model list; otherwise the model is typed.
+  Consent says the item text and label descriptions are sent to the named
+  destination and that held-out items never are. "Label it myself instead"
+  is always there and hides the guide for the Dataset, like "Hide guide".
+  States: "Checking your key…" on the button while the key is checked or
+  saved; a refused key says "That key was refused by <provider>. Check it and
+  paste it again." with the provider's reason; a failed consent says
+  "Couldn't save that. Try again."; a shared key whose meter is down, or a
+  shared allowance used up, says so as an alert with the own-key form open.
+  On success, step 3 opens with "Connected. Before it suggests anything, show
+  it 10 examples so it learns what you mean. About 5 minutes."
+- **Step 3, "Show it how"** shows a count chip per label (done at 3, warning
+  under 3), the total out of 10, and, on a held-out item, "This item is kept
+  aside to test your model later. You label these yourself; the AI never sees
+  them." The item stays in its own box below the panel. A label that can't
+  reach 3 with the items left says "Only N <label> rows left. That's enough
+  to continue." and no longer holds the step (`showTargets`, exported); it is
+  marked skipped, not done. The count is announced in a polite live region.
+- **Phones (640px and under), in step 3**: the panel folds to one line,
+  "Step 3 of 6 · 6 of 10 examples", over the six-segment bar, with a
+  "Details" toggle (`aria-expanded`) that opens the full step, so the item
+  sits above the fold.
+- **`MLAdapter.listLlmModels`** (optional), and the self-hosted adapter's
+  `POST /api/llm/models`, to list a provider's models and check a key. The
+  provider list (`LLM_PROVIDERS`) mirrors BAIGLE's.
+- `useLlmAssist` exposes `errorCode`, the refusal code behind `error`.
+
+### Changed
+
+- The guide's step 2 and 3 no longer show today's `LlmAssistPanel`; steps 4
+  to 6 still do until BAIGLE #195 and #196.
+- A shared allowance used up sends the guide back to Connect AI.
+
+### Fixed
+
+- Label sentences named in the guide, then left waiting because the Project
+  had not allowed sending text, are now saved by today's panel once sending
+  is allowed there, with the guide hidden. Before, they waited until the
+  guide showed again.
+
 ## [0.14.0] - 2026-11-25
 
 ### Added
@@ -585,7 +635,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.11.0...v0.12.0
