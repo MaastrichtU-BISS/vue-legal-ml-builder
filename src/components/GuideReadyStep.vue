@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { count } from '../annotation/annotationState'
 import { READY_WARN_BELOW, type ReadySummary } from '../annotation/guide'
 import Icon from './shared/Icon.vue'
 
@@ -11,6 +12,8 @@ const props = defineProps<{
   summary: ReadySummary
   /** Where Create model opens; the workspace's `createModelHref`. */
   createModelHref?: string
+  /** Items still without a label; null when unknown. */
+  left?: number | null
 }>()
 
 const quoted = (label: string) => `“${label}”`
@@ -30,6 +33,9 @@ const blockedReason = computed(() => {
         <span>{{ l.label }}</span> <span class="vmlb-num">{{ l.count }}</span>
       </li>
     </ul>
+    <p v-if="left" class="vmlb-guide-text vmlb-num">
+      {{ count(left, 'item') }} {{ left === 1 ? 'is' : 'are' }} still unlabelled. You can train now, or label {{ left === 1 ? 'it' : 'them' }} later.
+    </p>
 
     <p v-for="l in summary.few" :key="l.label" class="vmlb-guide-warning">
       <Icon name="alert" />

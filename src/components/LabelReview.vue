@@ -252,7 +252,8 @@ const labelset = computed(() => kitLabelset([...new Set([...(opened.value?.label
         />
       </div>
     </template>
-    <p v-if="notice" role="status" class="vmlb-muted vmlb-review-notice">{{ notice }}</p>
+    <!-- Mounted from the start, so a notice put in it is announced. -->
+    <p role="status" class="vmlb-muted vmlb-review-notice" :class="{ 'is-empty': !notice }">{{ notice }}</p>
   </section>
 </template>
 
@@ -271,4 +272,5 @@ const labelset = computed(() => kitLabelset([...new Set([...(opened.value?.label
 .vmlb-review-intro { margin: 0.5rem 0 1rem; font-size: var(--vmlb-font-size-md); }
 .vmlb-review-source { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0 0 0.5rem; font-size: var(--vmlb-font-size-sm); }
 .vmlb-review-notice { margin-top: 0.5rem; font-size: var(--vmlb-font-size-md); }
+.vmlb-review-notice.is-empty { margin: 0; }
 </style>

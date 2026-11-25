@@ -7,6 +7,12 @@ import { createPollLoop, type PollLoop } from '../utils/polling'
 /** Refusals after which the status on screen is out of date. */
 const STATUS_CODES = ['no_llm_access', 'acknowledgement_required', 'destination_changed', 'credential_unusable']
 
+/** The server answered that it doesn't know the job (a 404, or its "Job not found"). */
+function jobNotFound(err: unknown): boolean {
+  const failure = err as { status?: number; message?: string } | null
+  return failure?.status === 404 || /not found/i.test(failure?.message ?? '')
+}
+
 /** A Dataset's LLM access and suggestions. Nothing is sent to an LLM until the
  * Project has acknowledged the destination the backend names. */
 export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
@@ -134,13 +140,18 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     }
   }
 
-  /** Resolves true when suggestions became labels. */
+  /** How many suggestions the last bulk accept made labels, as the server counted them. */
+  const acceptedCount = ref<number | null>(null)
+
+  /** Resolves true when suggestions became labels; `acceptedCount` says how many. */
   async function bulkAccept(datasetId: Id) {
     let accepted = false
+    acceptedCount.value = null
     await run(datasetId, async () => {
       try {
         const result = await adapter.bulkAcceptLlmSuggestions!(datasetId)
         accepted = true
+        acceptedCount.value = result.accepted
         notice.value = `${count(result.accepted, 'suggestion')} accepted.`
       } finally {
         await loadProgress(datasetId).catch(() => undefined)
@@ -247,13 +258,18 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   }
 
   /** Picks up a job started on an earlier visit, from the worker's own
-   * record of it. Resolves false when the server no longer knows the job. */
+   * record of it. Resolves false when the server no longer knows the job; a
+   * read that failed otherwise (the network) keeps following it. */
   async function resumeJob(datasetId: Id, id: Id): Promise<boolean> {
     jobId.value = id
     try {
       if (await readJob(datasetId, id)) followJob(datasetId, id)
       return true
-    } catch {
+    } catch (err) {
+      if (!jobNotFound(err)) {
+        if (jobId.value === id) followJob(datasetId, id)
+        return true
+      }
       if (jobId.value === id) jobId.value = null
       return false
     }
@@ -270,7 +286,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
 
   return {
     status, suggestions, agreement, prompt, promptError, error, errorCode, notice, isBusy, budgetExhausted, hasAccess, ready,
-    estimate, job, jobId,
+    estimate, job, jobId, acceptedCount,
     refresh, refreshProgress, saveKey, deleteKey, acknowledge, suggest, bulkAccept, loadPrompt, savePrompt,
     suggestOne, suggestError,
     estimateJob, clearEstimate, startJob, resumeJob, clearJob,

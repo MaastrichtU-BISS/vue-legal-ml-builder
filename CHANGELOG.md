@@ -21,19 +21,36 @@ tagged `vX.Y.Z`.
   out the cost" shows "Working out the cost…" while the server counts, then
   reads "About X tokens. You have Y left this month."; with the student's own
   key it says the provider charges for these tokens instead. A job larger
-  than what is left is not offered. "Start labelling N items" runs the job,
-  with its progress in the guide's one polite live region and a progress bar.
+  than what is left is not offered. The estimate and the job always name the
+  items: those the AI can still label, that is items still to label with no
+  answer yet from the model and prompt version in use, whatever happened to
+  it (the server skips any that has one). "Every item still to label" counts
+  those, and "the next N" are the next N of them in queue order. "Start
+  labelling N items" runs the job, with its progress in the guide's one
+  polite live region (the start, then each quarter passed) and a progress
+  bar with the exact count.
+- **When what is left can't be labelled by the AI** (it already answered on
+  each item, e.g. its label was rejected in "Check 10 at random first"), Do
+  the rest says "N items are left for you to label" instead of offering an
+  estimate. When the item on screen is the only one left, its waiting AI
+  label is offered to accept.
 - **A job can be left and picked up again.** The guide keeps only the job's
   id per Dataset in browser storage and reads its progress from the server
-  on the next visit; a job the server no longer knows is forgotten. A failed
-  job shows "Labelling stopped after N of M. Those N are kept." as an alert
-  with Carry on, which estimates the rest again.
+  on the next visit; a job the server no longer knows (a 404) is forgotten,
+  and one that couldn't be read for another reason is still followed. Once a
+  job is read as finished or stopped its id is forgotten, so a stopped job
+  isn't shown again on a later visit. A failed job shows "Labelling stopped
+  after N of M. Those N are kept." as an alert (N kept is the AI labels it
+  made), with Carry on, which returns to the choice of items with a new
+  estimate, noting the AI labels already waiting are kept.
 - **When the AI has finished**, its labels wait: "Accept N AI labels" is the
   only way to make them labels, and N counts only the suggestions the server
   would accept (the passed check's model and prompt version, on one of the
   Dataset's labels). "Check 10 at random first" opens the review screen on
   10 of them picked at random in the browser; "Let the AI label more first"
-  returns to the estimate while items without an AI label remain.
+  returns to the estimate while items the AI can still label remain. N
+  leaves out suggestions for items no longer waiting for a label, and the
+  live region announces the count the server accepted.
 - **The review screen can check the AI's labels.** `LabelReview` takes
   `check` (a list of suggestions): each item shows the AI's label as a kit
   proposal, "The AI's label, not accepted yet", that the student accepts,
@@ -44,16 +61,24 @@ tagged `vX.Y.Z`.
   a warning naming each label under 50 ("Only 12 “Prohibition” examples.
   Your model may miss this label; 50 or more works better."), and Create
   model as the main button, opening the workspace's `createModelHref`. With
-  a label at 0, Create model is disabled and the reason names the label.
+  a label at 0, Create model is disabled and the reason names the label. The
+  guide is on it when nothing is left to label, or when every label has 2 or
+  more confirmed and the AI can label nothing more with none of its labels
+  waiting; with items still unlabelled it says "N items are still
+  unlabelled. You can train now, or label them later." While the AI can
+  still label items, Do the rest offers "Go to Ready to train" once every
+  label has 2 or more confirmed (for that visit; nothing is stored).
 - **Back to Connect AI when the AI can't be used.** The shared allowance
   running out (a refusal or a job stopped for it) or the key failing (a
   `credential_unusable` refusal, or the provider refusing the key, in Try it
   or Do the rest) returns the guide to Connect AI with the reason and the key
   form, saying the labels already made are kept. Saving a key again returns
   to where the student was.
-- `useLlmAssist` exposes `jobId`, `resumeJob` and `clearJob`. Exported from
-  the guide: `CHECK_SAMPLE`, `READY_WARN_BELOW`, `aiLabelsToAccept`,
-  `readySummary`, and the types `ReadyLabel`, `ReadySummary` and `RestScope`.
+- `useLlmAssist` exposes `jobId`, `resumeJob`, `clearJob` and
+  `acceptedCount` (how many the last bulk accept made labels, as the server
+  counted them). Exported from the guide: `CHECK_SAMPLE`, `READY_WARN_BELOW`,
+  `aiLabellable`, `aiLabelsToAccept`, `readySummary`, `readyToTrain`, and
+  the types `ReadyLabel`, `ReadySummary` and `RestScope`.
 
 ### Changed
 

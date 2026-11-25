@@ -1,7 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import AnnotationWorkspace from '../src/components/AnnotationWorkspace.vue'
-import type { AnnotationStats, AnnotationTask, LlmEstimate, LlmJob, MLAdapter } from '../src/types'
+import type { AnnotationStats, AnnotationTask, LlmEstimate, LlmJob, LlmSuggestion, MLAdapter } from '../src/types'
 import { createTestAdapter } from './testAdapter'
 import { llmAgreement, llmMethods, llmStatus, llmSuggestion, refusal } from './fixtures/llm'
 
@@ -27,6 +27,11 @@ const estimate = (overrides: Partial<LlmEstimate> = {}): LlmEstimate => ({
   tasks: 28, estimated_tokens: 42000, remaining_tokens: 158000, within_budget: true, destination: 'openrouter.ai', ...overrides,
 })
 const aiLabel = (i: number) => llmSuggestion({ id: `s${i}`, task_id: `p${i}`, label: i % 2 ? 'Civil' : 'Criminal' })
+const ids = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => `p${from + i}`)
+
+/** The server's suggestion list: every status, or only the one asked for. */
+const suggestionList = (all: () => LlmSuggestion[]) =>
+  vi.fn(async (_datasetId: string, status?: string) => (status ? all().filter((s) => s.status === status) : all()))
 
 interface Setup {
   counts?: Record<string, number>
@@ -114,8 +119,8 @@ describe('step 5, Do the rest: the estimate', () => {
     answer(estimate())
     await flushPromises()
 
-    // Every item: no ids sent, so the server counts every pending item.
-    expect(adapter.estimateLlmAnnotation).toHaveBeenCalledWith('ds-1', undefined)
+    // Every item the AI can label, named, so the server counts only those.
+    expect(adapter.estimateLlmAnnotation).toHaveBeenCalledWith('ds-1', ids(0, 28))
     expect(guide(wrapper).text()).toContain('About 42,000 tokens. You have 158,000 left this month.')
     expect(guide(wrapper).text()).not.toContain('provider charges')
     expect(button(wrapper, 'Start labelling 28 items')).toBeDefined()
@@ -190,7 +195,7 @@ describe('step 5, Do the rest: the running job', () => {
     await click(wrapper, 'Start labelling 28 items')
     await poll()
 
-    expect(adapter.startLlmAnnotation).toHaveBeenCalledWith('ds-1', undefined)
+    expect(adapter.startLlmAnnotation).toHaveBeenCalledWith('ds-1', ids(0, 28))
     expect(adapter.getLlmJob).toHaveBeenCalledWith('job-1')
     expect(guide(wrapper).text()).toContain('12 of 28 items done')
     expect(guide(wrapper).find('[role="progressbar"]').attributes('aria-valuenow')).toBe('12')
@@ -220,35 +225,94 @@ describe('step 5, Do the rest: the running job', () => {
 
   it('forgets a job the server no longer knows', async () => {
     localStorage.setItem('vmlb-guide-job:ds-1', 'job-gone')
-    const { wrapper } = await mounted({ overrides: { getLlmJob: vi.fn().mockRejectedValue(new Error('Job not found')) } })
+    const getLlmJob = vi.fn().mockRejectedValue(refusal('Job not found', undefined, { status: 404 }))
+    const { wrapper } = await mounted({ overrides: { getLlmJob } })
 
     expect(button(wrapper, 'Work out the cost')).toBeDefined()
-    expect(localStorage.getItem('vmlb-guide-job:ds-1')).toBeNull()
+    wrapper.unmount()
+    // Not asked about again on the next visit.
+    getLlmJob.mockClear()
+    const again = await mounted({ overrides: { getLlmJob } })
+    expect(getLlmJob).not.toHaveBeenCalled()
+    again.wrapper.unmount()
+  })
+
+  it('keeps following a job when reading it failed on the network, not because the server lost it', async () => {
+    localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
+    const getLlmJob = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValue({ status: 'running', total: 28, done: 20, created: 20 })
+    const { wrapper } = await mounted({ overrides: { getLlmJob } })
+    await poll()
+
+    expect(guide(wrapper).text()).toContain('20 of 28 items done')
+    wrapper.unmount()
+  })
+
+  it('announces the start, then only each quarter passed, while the bar has the exact count', async () => {
+    let job: LlmJob = { status: 'running', total: 28, done: 1, created: 1 }
+    const { wrapper } = await mounted({
+      overrides: {
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate()),
+        startLlmAnnotation: vi.fn().mockResolvedValue({ job_id: 'job-1', estimate: estimate() }),
+        getLlmJob: vi.fn(async () => job),
+      },
+    })
+
+    await click(wrapper, 'Work out the cost')
+    await click(wrapper, 'Start labelling 28 items')
+    await poll()
+    expect(liveRegion(wrapper).text()).toBe('Labelling: 1 of 28 done.')
+
+    job = { ...job, done: 5, created: 5 }
+    await poll()
+    expect(guide(wrapper).find('[role="progressbar"]').attributes('aria-valuenow')).toBe('5')
+    expect(liveRegion(wrapper).text()).toBe('Labelling: 1 of 28 done.')
+
+    job = { ...job, done: 7, created: 7 }
+    await poll()
+    expect(liveRegion(wrapper).text()).toBe('Labelling: 7 of 28 done.')
+
+    job = { status: 'completed', total: 28, done: 28, created: 28 }
+    await poll()
+    expect(liveRegion(wrapper).text()).not.toContain('Labelling:')
     wrapper.unmount()
   })
 })
 
 describe('step 5, Do the rest: a failed job', () => {
-  it('says how many were kept and carries on with a new estimate', async () => {
+  it('says how many were kept and carries on with a new estimate for the items still without an AI label', async () => {
     localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
+    // Before it stopped, the job worked through 10 items: 8 AI labels made, 2 answers that weren't a label.
+    const made = Array.from({ length: 8 }, (_, i) => aiLabel(i))
+    const getLlmJob = vi.fn().mockResolvedValue({ status: 'failed', total: 28, done: 10, created: 8, invalid: 2, error: 'The LLM service returned an error.' })
     const { adapter, wrapper } = await mounted({
       overrides: {
-        getLlmJob: vi.fn().mockResolvedValue({ status: 'failed', total: 312, done: 140, created: 140, error: 'The LLM service returned an error.' }),
-        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 172 })),
+        getLlmJob,
+        listLlmSuggestions: suggestionList(() => made),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 20 })),
       },
     })
 
-    expect(alerts(wrapper)).toContain('Labelling stopped after 140 of 312. Those 140 are kept.')
+    expect(alerts(wrapper)).toContain('Labelling stopped after 10 of 28. Those 8 are kept.')
     // Not a key failure: the guide stays on Do the rest.
     expect(currentStep(wrapper).text()).toContain('Do the rest')
 
     await click(wrapper, 'Carry on')
 
-    expect(adapter.estimateLlmAnnotation).toHaveBeenCalledWith('ds-1', undefined)
-    expect(alerts(wrapper)).not.toContain('Labelling stopped after 140 of 312. Those 140 are kept.')
-    expect(button(wrapper, 'Start labelling 172 items')).toBeDefined()
-    expect(localStorage.getItem('vmlb-guide-job:ds-1')).toBeNull()
+    // The 8 waiting are left out. The 2 answers that weren't a label left nothing behind, so those are asked again.
+    expect(adapter.estimateLlmAnnotation).toHaveBeenLastCalledWith('ds-1', ids(8, 28))
+    expect(alerts(wrapper)).not.toContain('Labelling stopped after 10 of 28. Those 8 are kept.')
+    expect(guide(wrapper).text()).toContain('8 AI labels are already waiting. They are kept, and you accept them with the rest.')
+    expect(button(wrapper, 'Start labelling 20 items')).toBeDefined()
+    expect(button(wrapper, 'Accept 8 AI labels')).toBeUndefined()
     wrapper.unmount()
+
+    // The stopped job isn't picked up again on the next visit.
+    getLlmJob.mockClear()
+    const again = await mounted({ overrides: { getLlmJob, listLlmSuggestions: suggestionList(() => made) } })
+    expect(getLlmJob).not.toHaveBeenCalled()
+    again.wrapper.unmount()
   })
 })
 
@@ -257,11 +321,48 @@ describe('step 5, Do the rest: when the AI has finished', () => {
 
   it("arriving from Try it with its suggestion for the item on screen, still chooses the items and sees the cost first", async () => {
     const leftover = llmSuggestion({ id: 'left', task_id: item.id, label: 'Civil' })
-    const { wrapper } = await mounted({ overrides: { listLlmSuggestions: vi.fn().mockResolvedValue([leftover]) } })
+    const { wrapper } = await mounted({
+      overrides: {
+        listLlmSuggestions: vi.fn().mockResolvedValue([leftover]),
+        listAnnotationTasks: vi.fn().mockResolvedValue([item, ...Array.from({ length: 27 }, (_, i) => pendingTask(i + 1))]),
+      },
+    })
 
     expect(guide(wrapper).text()).toContain('1 AI label is already waiting. It is kept, and you accept it with the rest.')
     expect(button(wrapper, 'Work out the cost')).toBeDefined()
     expect(button(wrapper, 'Accept 1 AI label')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('when the item on screen is the only one left, offers its AI label to accept instead of another estimate', async () => {
+    const leftover = llmSuggestion({ id: 'left', task_id: item.id, label: 'Civil' })
+    const { wrapper } = await mounted({
+      counts: { Civil: 1, Criminal: 12 },
+      stats: { total: 14, annotated: 13, percentage: 93 },
+      overrides: { listLlmSuggestions: vi.fn().mockResolvedValue([leftover]), listAnnotationTasks: vi.fn().mockResolvedValue([item]) },
+    })
+
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
+    expect(button(wrapper, 'Accept 1 AI label')).toBeDefined()
+    expect(button(wrapper, 'Work out the cost')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('says plainly what is left for the student when the AI already answered on every item left', async () => {
+    // Rejected in "Check 10 at random": the server won't ask the AI about these again.
+    // Civil is still one short of the two Ready to train needs, and only one item is left.
+    const rejected = [llmSuggestion({ id: 'r0', task_id: 'p0', status: 'rejected' })]
+    const { adapter, wrapper } = await mounted({
+      counts: { Civil: 1, Criminal: 11 },
+      stats: { total: 13, annotated: 12, percentage: 92 },
+      overrides: { listLlmSuggestions: suggestionList(() => rejected), listAnnotationTasks: vi.fn().mockResolvedValue([pendingTask(0)]) },
+    })
+
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
+    expect(guide(wrapper).text()).toContain('1 item is left for you to label.')
+    expect(guide(wrapper).text()).toContain('Label it yourself in the item below.')
+    expect(button(wrapper, 'Work out the cost')).toBeUndefined()
+    expect(adapter.estimateLlmAnnotation).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -282,23 +383,43 @@ describe('step 5, Do the rest: when the AI has finished', () => {
     wrapper.unmount()
   })
 
-  it('lets the AI label more first while some items have no AI label yet', async () => {
-    const { wrapper } = await mounted({
+  it('announces how many the server accepted', async () => {
+    const bulkAcceptLlmSuggestions = vi.fn().mockResolvedValue({ accepted: 11, agreement: passed })
+    const { wrapper } = await mounted({ overrides: { listLlmSuggestions: vi.fn().mockResolvedValue(twelve), bulkAcceptLlmSuggestions } })
+
+    await click(wrapper, 'Accept 12 AI labels')
+
+    expect(liveRegion(wrapper).text()).toBe('11 AI labels accepted.')
+    wrapper.unmount()
+  })
+
+  it('lets the AI label more first, estimating only the items without its label', async () => {
+    const { adapter, wrapper } = await mounted({
       overrides: { listLlmSuggestions: vi.fn().mockResolvedValue(twelve), estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 16 })) },
     })
 
     await click(wrapper, 'Let the AI label more first')
+    expect(wrapper.find('input[type="radio"][value="all"]').element.closest('label')!.textContent).toContain('Every item still to label (16)')
     await click(wrapper, 'Work out the cost')
 
+    expect(adapter.estimateLlmAnnotation).toHaveBeenLastCalledWith('ds-1', ids(12, 28))
     expect(button(wrapper, 'Start labelling 16 items')).toBeDefined()
     expect(button(wrapper, 'Accept 12 AI labels')).toBeUndefined()
+
+    // The next 5 are the next 5 it hasn't labelled, not the 5 it already did.
+    await wrapper.find('input[type="radio"][value="next"]').setValue(true)
+    await wrapper.find('input[type="number"]').setValue(5)
+    await click(wrapper, 'Work out the cost')
+    expect(adapter.estimateLlmAnnotation).toHaveBeenLastCalledWith('ds-1', ids(12, 17))
     wrapper.unmount()
   })
 
   it('counts only the AI labels from the model and prompt the passed check is for', async () => {
     const older = llmSuggestion({ id: 'old', task_id: 'p99', prompt_version: -1 })
     const otherModel = llmSuggestion({ id: 'other', task_id: 'p98', model: 'gpt-x' })
-    const { wrapper } = await mounted({ overrides: { listLlmSuggestions: vi.fn().mockResolvedValue([...twelve, older, otherModel]) } })
+    // Its item was labelled outside the guide: the server accepts only labels for items still to label.
+    const labelledElsewhere = llmSuggestion({ id: 'gone', task_id: 'done-1' })
+    const { wrapper } = await mounted({ overrides: { listLlmSuggestions: vi.fn().mockResolvedValue([...twelve, older, otherModel, labelledElsewhere]) } })
 
     expect(button(wrapper, 'Accept 12 AI labels')).toBeDefined()
     wrapper.unmount()
@@ -311,6 +432,25 @@ describe('step 5, Do the rest: when the AI has finished', () => {
     await click(wrapper, 'Accept 12 AI labels')
 
     expect(alerts(wrapper)).toContain('Bulk accept needs 30 checked items at 80% agreement.')
+    wrapper.unmount()
+  })
+
+  it('offers Ready to train once every label has two confirmed, while the AI could still label more', async () => {
+    const { wrapper } = await mounted({ props: { createModelHref: '/models/create?project=p1' } })
+
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
+    await click(wrapper, 'Go to Ready to train')
+
+    expect(currentStep(wrapper).text()).toContain('Ready to train')
+    expect(guide(wrapper).text()).toContain('28 items are still unlabelled. You can train now, or label them later.')
+    expect(guide(wrapper).find('a[href="/models/create?project=p1"]').text()).toBe('Create model')
+    wrapper.unmount()
+  })
+
+  it('does not offer Ready to train while a label has fewer than two confirmed', async () => {
+    const { wrapper } = await mounted({ counts: { Civil: 1, Criminal: 11 } })
+
+    expect(button(wrapper, 'Go to Ready to train')).toBeUndefined()
     wrapper.unmount()
   })
 
@@ -328,9 +468,16 @@ describe('step 5, Do the rest: when the AI has finished', () => {
     const opened = vi.mocked(adapter.getAnnotationAssignment).mock.calls.map(([id]) => id)
     expect(twelve.map((s) => s.task_id)).toContain(opened[opened.length - 1])
     expect(adapter.confirmLlmSuggestion).not.toHaveBeenCalled()
+    // The notice's live region is there before anything is put in it, so what it says is announced.
+    const status = review.find('[role="status"]')
+    expect(status.exists()).toBe(true)
+    expect(status.text()).toBe('')
 
-    await review.find('.proposal__btn--accept').trigger('click')
+    const accept = review.findAll('button').find((b) => b.text() === 'Accept')
+    await accept!.trigger('click')
     await flushPromises()
+    expect(review.find('[role="status"]').element).toBe(status.element)
+    expect(status.text()).not.toBe('')
 
     expect(adapter.confirmLlmSuggestion).toHaveBeenCalledTimes(1)
     const [confirmedId] = vi.mocked(adapter.confirmLlmSuggestion!).mock.calls[0]
@@ -406,6 +553,29 @@ describe('out of tokens or a failed key: back to Connect AI', () => {
     wrapper.unmount()
   })
 
+  it('does not send the student back to Connect AI on the next visit once a new key is saved', async () => {
+    const own = llmStatus({ mode: 'byok', remaining_tokens: null, key: { base_url: 'https://openrouter.ai/api/v1', model: 'mistral-small' } })
+    localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
+    const overrides = {
+      getLlmStatus: vi.fn().mockResolvedValue(own),
+      getLlmJob: vi.fn().mockResolvedValue({ status: 'failed', total: 28, done: 9, created: 9, error: 'The LLM service rejected the API key.' }),
+    }
+    const first = await mounted({ overrides })
+    expect(currentStep(first.wrapper).text()).toContain('Connect AI')
+    await first.wrapper.find('input[type="password"]').setValue('sk-new')
+    await first.wrapper.find('form.vmlb-guide-key').trigger('submit')
+    await flushPromises()
+    expect(currentStep(first.wrapper).text()).toContain('Do the rest')
+    first.wrapper.unmount()
+
+    const again = await mounted({ overrides })
+
+    expect(currentStep(again.wrapper).text()).toContain('Do the rest')
+    expect(guide(again.wrapper).find('input[type="password"]').exists()).toBe(false)
+    expect(button(again.wrapper, 'Work out the cost')).toBeDefined()
+    again.wrapper.unmount()
+  })
+
   it('returns to Connect AI from Try it when the provider refuses the key', async () => {
     const { wrapper } = await mounted({
       overrides: {
@@ -469,17 +639,34 @@ describe('step 6, Ready to train', () => {
     wrapper.unmount()
   })
 
+  it('comes once every label has two confirmed and the AI has already answered on every item left', async () => {
+    const rejected = [llmSuggestion({ id: 'r0', task_id: 'p0', status: 'rejected' }), llmSuggestion({ id: 'r1', task_id: 'p1', status: 'rejected' })]
+    const { wrapper } = await mounted({
+      stats: { total: 14, annotated: 12, percentage: 86 },
+      props: { createModelHref: '/models/create?project=p1' },
+      overrides: { listLlmSuggestions: suggestionList(() => rejected), listAnnotationTasks: vi.fn().mockResolvedValue([pendingTask(0), pendingTask(1)]) },
+    })
+
+    expect(currentStep(wrapper).text()).toContain('Ready to train')
+    expect(guide(wrapper).text()).toContain('2 items are still unlabelled. You can train now, or label them later.')
+    expect(guide(wrapper).find('a[href="/models/create?project=p1"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('moves focus to Ready to train once the AI labels are accepted and nothing is left', async () => {
-    const getNextAnnotationTask = vi.fn()
-      .mockResolvedValueOnce({ task: item, stats: { total: 40, annotated: 12, percentage: 30 } })
-      .mockResolvedValue({ task: null, stats: { total: 40, annotated: 40, percentage: 100 } })
+    let accepted = false
+    const getNextAnnotationTask = vi.fn(async () =>
+      accepted ? { task: null, stats: { total: 40, annotated: 40, percentage: 100 } } : { task: item, stats: { total: 40, annotated: 12, percentage: 30 } },
+    )
     const counts: Record<string, number> = { Civil: 6, Criminal: 6 }
     const { wrapper } = await mounted({
       counts,
       overrides: {
         getNextAnnotationTask,
-        listLlmSuggestions: vi.fn().mockResolvedValueOnce(Array.from({ length: 28 }, (_, i) => aiLabel(i))).mockResolvedValue([]),
+        listLlmSuggestions: suggestionList(() => (accepted ? [] : Array.from({ length: 28 }, (_, i) => aiLabel(i)))),
+        listAnnotationTasks: vi.fn(async () => (accepted ? [] : Array.from({ length: 28 }, (_, i) => pendingTask(i)))),
         bulkAcceptLlmSuggestions: vi.fn(async () => {
+          accepted = true
           counts.Civil = 20
           counts.Criminal = 20
           return { accepted: 28, agreement: passed }

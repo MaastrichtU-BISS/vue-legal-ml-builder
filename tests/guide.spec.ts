@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   GUIDE_STEPS,
   agreementLine,
+  aiLabellable,
   aiLabelsToAccept,
   jobKeyFailureReason,
+  jobProgressLine,
+  readyToTrain,
   keyFailureReason,
   pickAtRandom,
   readGuideJob,
@@ -89,6 +92,22 @@ describe('guideStep', () => {
     expect(guideStep(progress({ pending: 0 }))).toBe('ready')
     // Nothing left to label: neither the AI nor more examples can help.
     expect(guideStep(progress({ pending: 0, hasAccess: false, confirmedTotal: 4, confirmedPerLabel: { Civil: 2, Criminal: 2 } }))).toBe('ready')
+  })
+
+  it('is ready to train with items left once every label has two confirmed and the AI can label nothing more', () => {
+    expect(guideStep(progress({ aiCanLabelMore: false, aiLabelsWaiting: 0 }))).toBe('ready')
+    // The AI's labels still wait to be accepted, or it can still label some: Do the rest.
+    expect(guideStep(progress({ aiCanLabelMore: false, aiLabelsWaiting: 3 }))).toBe('rest')
+    expect(guideStep(progress({ aiCanLabelMore: true }))).toBe('rest')
+    // A label short of two: what is left is the student's, in Do the rest.
+    expect(guideStep(progress({ aiCanLabelMore: false, pending: 1, confirmedPerLabel: { Civil: 1, Criminal: 11 } }))).toBe('rest')
+    expect(stepsMet(progress({ aiCanLabelMore: false })).rest).toBe(true)
+  })
+
+  it('is ready to train only when every label has two confirmed, as the server counts them', () => {
+    expect(readyToTrain({ labels: ['Civil', 'Criminal'], confirmedPerLabel: { Civil: 2, Criminal: 2 } })).toBe(true)
+    expect(readyToTrain({ labels: ['Civil', 'Criminal'], confirmedPerLabel: { Civil: 2 } })).toBe(false)
+    expect(readyToTrain({ labels: ['Civil', 'Criminal'], confirmedPerLabel: null })).toBe(false)
   })
 
   it('names the labels short of two confirmed examples for the Ready step', () => {
@@ -292,6 +311,31 @@ describe('Do the rest and Ready to train (BAIGLE #196)', () => {
     const list = [s('1'), s('2', { model: 'x' }), s('3', { prompt_version: 1 }), s('4', { label: 'Gone' }), s('5', { status: 'accepted' })]
     expect(aiLabelsToAccept(list, check, ['A', 'B']).map((x: { id: string }) => x.id)).toEqual(['1'])
     expect(aiLabelsToAccept(list, null, ['A', 'B'])).toEqual([])
+  })
+
+  it('leaves out AI labels for items no longer waiting for a label, when those are known', () => {
+    const check = llmAgreement({ model: 'm', prompt_version: 1, checked: 30, agreed: 27, rate: 0.9, unlocked: true })
+    const list = [llmSuggestion({ id: '1', task_id: 'a', model: 'm', prompt_version: 1, label: 'A' }), llmSuggestion({ id: '2', task_id: 'b', model: 'm', prompt_version: 1, label: 'A' })]
+    expect(aiLabelsToAccept(list, check, ['A'], new Set(['a'])).map((x) => x.id)).toEqual(['1'])
+    expect(aiLabelsToAccept(list, check, ['A'], null).map((x) => x.id)).toEqual(['1', '2'])
+  })
+
+  it('finds the items the AI can still label: none of its answers for them from this model and prompt, whatever their status', () => {
+    const tasks = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }]
+    const suggestions = [
+      llmSuggestion({ id: '1', task_id: 'a', model: 'm', prompt_version: 1, status: 'rejected' }),
+      llmSuggestion({ id: '2', task_id: 'b', model: 'm', prompt_version: 1, status: 'pending' }),
+      llmSuggestion({ id: '3', task_id: 'c', model: 'm', prompt_version: 0, status: 'rejected' }),
+      llmSuggestion({ id: '4', task_id: 'd', model: 'other', prompt_version: 1 }),
+    ]
+    expect(aiLabellable(tasks, suggestions, { model: 'm', promptVersion: 1 }).map((t) => t.id)).toEqual(['c', 'd'])
+  })
+
+  it("announces a job's progress at the start, then once per quarter passed", () => {
+    expect(jobProgressLine({ done: 1, total: 28 }, null)).toEqual({ line: 'Labelling: 1 of 28 done.', quarter: 0 })
+    expect(jobProgressLine({ done: 6, total: 28 }, 0)).toBeNull()
+    expect(jobProgressLine({ done: 7, total: 28 }, 0)).toEqual({ line: 'Labelling: 7 of 28 done.', quarter: 1 })
+    expect(jobProgressLine({ done: 28, total: 28 }, 1)).toEqual({ line: 'Labelling: 28 of 28 done.', quarter: 4 })
   })
 
   it('picks at most n, each once', () => {

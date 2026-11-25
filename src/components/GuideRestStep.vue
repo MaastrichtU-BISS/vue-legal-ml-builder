@@ -15,6 +15,11 @@ const props = defineProps<{
   status: LlmStatus | null
   /** Items still waiting for a label; null when unknown. */
   pending: number | null
+  /** Of those, the items the AI can still label: none of them has an answer
+   * from the model and prompt in use yet. Null when unknown. */
+  labellable?: number | null
+  /** Every label has enough confirmed examples to train on. */
+  canFinish?: boolean
   /** The next N items can be chosen (the adapter lists pending items). */
   canChoose: boolean
   estimate: LlmEstimate | null
@@ -39,28 +44,44 @@ const emit = defineEmits<{
   (e: 'carry-on', scope: RestScope): void
   (e: 'accept'): void
   (e: 'check'): void
+  /** Go on to Ready to train for this visit, leaving the rest for later. */
+  (e: 'finish'): void
 }>()
 
+/** The items the AI would label: those it can still label, when known. */
+const toLabel = computed(() => props.labellable ?? props.pending)
 const scope = ref<'all' | 'next'>('all')
-const nextCount = ref(Math.min(50, Math.max(props.pending ?? 50, 1)))
+const nextCount = ref(Math.min(50, Math.max(toLabel.value ?? 50, 1)))
 const chosen = computed<RestScope>(() => ({ count: scope.value === 'next' ? Math.max(1, Math.floor(nextCount.value || 1)) : null }))
 watch([scope, nextCount], () => emit('change'))
 
 /** The AI's labels are waiting, but the student chose to let it label more first. */
 const wantMore = ref(false)
-/** Items with no AI label yet, beside those waiting to be accepted. */
-const unlabelled = computed(() => (props.pending === null ? 0 : Math.max(props.pending - props.aiLabels, 0)))
+/** Items the AI can still label, beside those waiting to be accepted. */
+const unlabelled = computed(() => props.labellable ?? (props.pending === null ? 0 : Math.max(props.pending - props.aiLabels, 0)))
 /** The AI has labelled items: waiting labels beyond Try it's suggestion for
  * the item on screen. That one alone doesn't count, so a student arriving from
- * Try it still chooses the items and sees the cost first. */
-const labelsReady = computed(() => props.aiLabels - (props.onScreenWaiting ? 1 : 0) > 0)
+ * Try it still chooses the items and sees the cost first, unless there is
+ * nothing left for the AI to label. */
+const labelsReady = computed(
+  () => props.aiLabels > 0 && (props.labellable === 0 || props.aiLabels - (props.onScreenWaiting ? 1 : 0) > 0),
+)
 const view = computed(() => {
   const status = props.job?.status
   if (status === 'queued' || status === 'running') return 'running'
   if (status === 'failed') return 'failed'
-  if (labelsReady.value && !wantMore.value) return 'done'
+  if (labelsReady.value && (!wantMore.value || props.labellable === 0)) return 'done'
+  // What is left already has the AI's answer: only the student can label it.
+  if (props.labellable === 0) return 'left'
   return 'choose'
 })
+
+/** Carry on after a stop: the labels made so far stay waiting, and the student
+ * chooses what the AI labels next, with a new estimate. */
+function carryOn() {
+  wantMore.value = true
+  emit('carry-on', chosen.value)
+}
 watch(view, (value) => {
   if (value === 'running') wantMore.value = false
 })
@@ -93,7 +114,7 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
         <legend>Which items should the AI label?</legend>
         <label class="vmlb-guide-option">
           <input v-model="scope" type="radio" name="vmlb-guide-scope" value="all" />
-          <span>Every item still to label<span v-if="pending !== null" class="vmlb-num"> ({{ pending }})</span></span>
+          <span>Every item still to label<span v-if="toLabel !== null" class="vmlb-num"> ({{ toLabel }})</span></span>
         </label>
         <label v-if="canChoose" class="vmlb-guide-option">
           <input v-model="scope" type="radio" name="vmlb-guide-scope" value="next" />
@@ -101,7 +122,7 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
         </label>
         <div v-if="canChoose && scope === 'next'" class="vmlb-field vmlb-guide-count-field">
           <label for="vmlb-guide-next-count">How many items</label>
-          <input id="vmlb-guide-next-count" v-model.number="nextCount" class="vmlb-guide-input" type="number" min="1" :max="pending ?? undefined" />
+          <input id="vmlb-guide-next-count" v-model.number="nextCount" class="vmlb-guide-input" type="number" min="1" :max="toLabel ?? undefined" />
         </div>
       </fieldset>
 
@@ -137,6 +158,9 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
         >
           {{ estimating ? 'Working out the cost…' : 'Work out the cost' }}
         </button>
+        <button v-if="canFinish" type="button" class="vmlb-btn-tertiary vmlb-guide-target" :disabled="estimating || busy" @click="emit('finish')">
+          Go to Ready to train
+        </button>
       </div>
     </template>
 
@@ -160,7 +184,7 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
 
     <template v-else-if="view === 'failed' && job">
       <p class="vmlb-guide-error" role="alert">
-        <Icon name="alert" /> Labelling stopped after {{ job.done }} of {{ job.total }}. Those {{ job.done }} are kept.
+        <Icon name="alert" /> Labelling stopped after {{ job.done }} of {{ job.total }}. Those {{ job.created ?? job.done }} are kept.
       </p>
       <div class="vmlb-guide-actions">
         <button
@@ -168,14 +192,14 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
           class="vmlb-btn-primary vmlb-guide-target"
           :disabled="estimating"
           :aria-busy="estimating ? 'true' : undefined"
-          @click="emit('carry-on', chosen)"
+          @click="carryOn"
         >
           {{ estimating ? 'Working out the cost…' : 'Carry on' }}
         </button>
       </div>
     </template>
 
-    <template v-else>
+    <template v-else-if="view === 'done'">
       <p class="vmlb-guide-text">
         The AI labelled {{ count(aiLabels, 'item') }}. They aren't labels yet: accept them to make them yours, or check
         some first.
@@ -190,7 +214,19 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
         <button v-if="unlabelled > 0" type="button" class="vmlb-btn-tertiary vmlb-guide-target" :disabled="busy" @click="wantMore = true">
           Let the AI label more first
         </button>
+        <button v-if="canFinish" type="button" class="vmlb-btn-tertiary vmlb-guide-target" :disabled="busy" @click="emit('finish')">
+          Go to Ready to train
+        </button>
       </div>
+    </template>
+
+    <template v-else-if="view === 'left'">
+      <p class="vmlb-guide-text vmlb-num">
+        {{ count(pending ?? 0, 'item') }} {{ pending === 1 ? 'is' : 'are' }} left for you to label.
+      </p>
+      <p class="vmlb-guide-hint">
+        The AI has already given its answer on {{ pending === 1 ? 'it' : 'each of them' }}, so it won't label {{ pending === 1 ? 'it' : 'them' }} again. Label {{ pending === 1 ? 'it' : 'them' }} yourself in the item below.
+      </p>
     </template>
 
     <p v-if="error" class="vmlb-guide-error" role="alert"><Icon name="alert" /> {{ error }}</p>
