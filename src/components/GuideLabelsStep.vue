@@ -41,17 +41,21 @@ const rows = ref<Row[]>(initialRows())
  * student typed is never overwritten. */
 function mergeKnown() {
   const next = [...rows.value]
-  const find = (name: string) => next.find((row) => row.name.trim() === name)
+  // Names compare ignoring case, like validation and the server.
+  const find = (name: string) => next.find((row) => row.name.trim().toLowerCase() === name.toLowerCase())
+  const focusedId = typeof document === 'undefined' ? null : document.activeElement?.id ?? null
   const insert = (row: Row) => {
-    // Take the place of an untouched empty row, so the form doesn't grow blanks.
-    const empty = next.findIndex(isBlank)
+    // Take the place of an untouched empty row, so the form doesn't grow blanks,
+    // but never the one the student is in.
+    const empty = next.findIndex((r) => isBlank(r) && nameId(r) !== focusedId && descriptionId(r) !== focusedId)
     if (empty >= 0) next.splice(empty, 1)
     const firstUnlocked = next.findIndex((r) => !r.locked)
     next.splice(row.locked ? (firstUnlocked < 0 ? next.length : firstUnlocked) : next.length, 0, row)
   }
   for (const name of props.inUse) {
     const row = find(name)
-    if (row) row.locked = true
+    // A label in use keeps the server's spelling.
+    if (row) Object.assign(row, { name, locked: true })
     else insert({ key: nextKey++, name, description: props.descriptions[name] ?? '', locked: true })
   }
   for (const name of props.labels) {

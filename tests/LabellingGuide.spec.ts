@@ -2,6 +2,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import AnnotationWorkspace from '../src/components/AnnotationWorkspace.vue'
 import GuideLabelsStep from '../src/components/GuideLabelsStep.vue'
+import LabellingGuide from '../src/components/LabellingGuide.vue'
 import type { ActiveLearningState, AnnotationStats, MLAdapter } from '../src/types'
 import { createTestAdapter } from './testAdapter'
 import { DEFAULT_TEMPLATE, llmAgreement, llmMethods, llmStatus, llmSuggestion } from './fixtures/llm'
@@ -673,6 +674,69 @@ describe('the guide: rows and Datasets', () => {
     await flushPromises()
     expect(adapter.getLlmStatus).toHaveBeenCalledWith('ds-2')
     expect(guide(wrapper).exists()).toBe(true)
+    wrapper.unmount()
+  })
+})
+
+describe('finding the labels in use (review round 2)', () => {
+  const annotated = (labels: string[]) => labels.map((annotation_label, i) => ({ id: `t${i}`, annotation_label }))
+
+  function guideWith(pageAnnotationTasks: ReturnType<typeof vi.fn>) {
+    const adapter = createTestAdapter({ pageAnnotationTasks, ...llmMethods() })
+    return mount(LabellingGuide, {
+      props: {
+        adapter, projectId: 'p1', datasetId: 'ds-1', labels: [], inUse: [],
+        stats: { total: 40, annotated: 3, percentage: 7 }, statsLoading: false, labelsVersion: 0,
+      },
+      attachTo: document.body,
+    })
+  }
+
+  it('pages the labelled items once on load, not again after each saved item', async () => {
+    const pageAnnotationTasks = vi.fn().mockResolvedValue({ tasks: annotated(['Civil', 'Criminal']), total: 2 })
+    const wrapper = guideWith(pageAnnotationTasks)
+    await flushPromises()
+    const afterLoad = pageAnnotationTasks.mock.calls.length
+
+    await wrapper.setProps({ labelsVersion: 1 })
+    await flushPromises()
+    await wrapper.setProps({ labelsVersion: 2 })
+    await flushPromises()
+
+    expect(afterLoad).toBeGreaterThan(0)
+    expect(pageAnnotationTasks.mock.calls.length).toBe(afterLoad)
+    wrapper.unmount()
+  })
+
+  it('advances by the rows that came back, so a short page skips nothing', async () => {
+    const all = annotated(['Civil', 'Civil', 'Criminal', 'Tort'])
+    const pageAnnotationTasks = vi.fn(async (_p: string, filter: { offset?: number }) => {
+      const offset = filter.offset ?? 0
+      return { tasks: all.slice(offset, offset + 2), total: all.length }
+    })
+    const wrapper = guideWith(pageAnnotationTasks)
+    await flushPromises()
+
+    expect(pageAnnotationTasks.mock.calls.map(([, f]) => (f as { offset: number }).offset)).toEqual([0, 2])
+    expect(wrapper.text()).toContain('Tort')
+    wrapper.unmount()
+  })
+})
+
+describe('a label in use arriving late matches what was typed ignoring case', () => {
+  it('locks the typed row with the server spelling instead of adding a duplicate', async () => {
+    const adapter = createTestAdapter()
+    const wrapper = mount(GuideLabelsStep, {
+      props: { adapter, datasetId: 'ds-1', labels: [], inUse: [], descriptions: {} },
+      attachTo: document.body,
+    })
+    await wrapper.findAll('input[type="text"]')[0].setValue('civil')
+    await wrapper.setProps({ inUse: ['Civil'] })
+    await flushPromises()
+
+    expect(wrapper.text().match(/In use/g)).toHaveLength(1)
+    expect(wrapper.text()).toContain('Civil')
+    expect(wrapper.findAll('input[type="text"]').map((i) => (i.element as HTMLInputElement).value)).not.toContain('civil')
     wrapper.unmount()
   })
 })

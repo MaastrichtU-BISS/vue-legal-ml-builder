@@ -110,7 +110,8 @@ const PAGE = 500
 async function findUsedLabels(): Promise<Record<string, number> | null> {
   if (props.adapter.pageAnnotationTasks) {
     const counts: Record<string, number> = {}
-    for (let offset = 0; ; offset += PAGE) {
+    // Advance by what came back: an adapter may return fewer rows than asked.
+    for (let offset = 0; ; ) {
       const page: { tasks: AnnotationTask[]; total: number } = await props.adapter.pageAnnotationTasks(props.projectId, {
         status: 'annotated', datasetId: props.datasetId, includeHoldout: true, limit: PAGE, offset,
       })
@@ -118,7 +119,8 @@ async function findUsedLabels(): Promise<Record<string, number> | null> {
         const label = task.annotation_label?.trim()
         if (label) counts[label] = (counts[label] ?? 0) + 1
       }
-      if (!page.tasks.length || offset + page.tasks.length >= page.total) break
+      offset += page.tasks.length
+      if (!page.tasks.length || offset >= page.total) break
     }
     return counts
   }
@@ -180,10 +182,18 @@ async function load() {
   await syncDescriptions()
 }
 
+let countsAsked = 0
 async function refreshCounts() {
   if (loadState.value !== 'ready') return
+  // With fewer than two named labels, the used labels come from paging every
+  // labelled item: done once on load, not after each saved item (the workspace
+  // already knows the label just saved).
+  if (props.labels.length < 2) return
+  const asked = ++countsAsked
   try {
-    perLabel.value = await loadCounts()
+    const counts = await loadCounts()
+    // An older reply arriving last must not replace a newer one.
+    if (asked === countsAsked) perLabel.value = counts
   } catch {
     // The step is worked out from the last counts until the next refresh.
   }
@@ -197,6 +207,8 @@ function clearPending() {
 }
 
 let syncing = false
+/** A sync is running: Try again shows as busy. */
+const syncBusy = ref(false)
 /** A sync asked for while one runs; it runs again once that one ends. */
 let rerun = false
 /** Loads the prompt and, when descriptions are still waiting, saves them as a
@@ -213,6 +225,9 @@ async function syncDescriptions(): Promise<void> {
   // The guide is keyed by Dataset, but a reply must still match the one asked about.
   const datasetId = props.datasetId
   syncing = true
+  syncBusy.value = true
+  // Cleared first, so a repeat failure is announced again.
+  sentencesError.value = null
   try {
     await llm.loadPrompt(datasetId)
     if (datasetId !== props.datasetId) return
@@ -241,6 +256,7 @@ async function syncDescriptions(): Promise<void> {
     clearPending()
   } finally {
     syncing = false
+    syncBusy.value = false
     emit('descriptions', descriptions.value)
     if (rerun) {
       rerun = false
@@ -339,7 +355,7 @@ watch([step, showing], async ([next, state]) => {
 
       <div v-if="sentencesError && pendingDescriptions" class="vmlb-guide-sentences-error">
         <p role="alert"><Icon name="alert" /> Your labels are saved, but their sentences aren't saved yet: {{ sentencesError }}</p>
-        <button type="button" class="vmlb-btn-secondary vmlb-guide-target" @click="syncDescriptions">Try again</button>
+        <button type="button" class="vmlb-btn-secondary vmlb-guide-target" :disabled="syncBusy" :aria-busy="syncBusy" @click="syncDescriptions">{{ syncBusy ? 'Trying again…' : 'Try again' }}</button>
       </div>
 
       <div class="vmlb-guide-step">
