@@ -61,6 +61,47 @@ export function agreementPassed(agreement: LlmAgreement | null): boolean {
   return agreement.checked >= agreement.min_sample && agreement.rate >= agreement.threshold
 }
 
+/** One label's count in Show it how, and the count it can still reach. */
+export interface ShowLabelTarget {
+  label: string
+  count: number
+  /** The most it can reach: SHOW_PER_LABEL, or fewer when too few items are left. */
+  target: number
+  /** Too few items are left to reach SHOW_PER_LABEL: what it has is enough. */
+  capped: boolean
+}
+
+export interface ShowTargets {
+  /** Per label; empty when the server cannot count per label. */
+  labels: ShowLabelTarget[]
+  total: number
+  /** The most the total can reach: SHOW_TOTAL, or fewer when too few items are left. */
+  totalTarget: number
+}
+
+/** What Show it how asks for. With the items left known, a label (or the
+ * total) that cannot reach its target any more has enough, so it never holds
+ * the step; with the queue still open we cannot tell, so it does. */
+export function showTargets(p: Pick<GuideProgress, 'labels' | 'confirmedPerLabel' | 'confirmedTotal' | 'pending'>): ShowTargets {
+  const reach = (count: number, wanted: number) => (p.pending === null ? wanted : Math.min(wanted, count + p.pending))
+  const labels = p.confirmedPerLabel === null
+    ? []
+    : p.labels.map((label) => {
+        const count = p.confirmedPerLabel![label] ?? 0
+        const target = reach(count, SHOW_PER_LABEL)
+        return { label, count, target, capped: target < SHOW_PER_LABEL }
+      })
+  return { labels, total: p.confirmedTotal, totalTarget: reach(p.confirmedTotal, SHOW_TOTAL) }
+}
+
+function showMet(p: GuideProgress): boolean {
+  const targets = showTargets(p)
+  return (
+    targets.labels.every((l) => l.capped || l.count >= SHOW_PER_LABEL) &&
+    (targets.totalTarget < SHOW_TOTAL || targets.total >= SHOW_TOTAL)
+  )
+}
+
 /** The step a Dataset is on. A step already done is skipped. "Improving" is a
  * state of `try` (agreement below the threshold at a full sample), not a step. */
 export function guideStep(p: GuideProgress): GuideStepKey {
@@ -69,10 +110,7 @@ export function guideStep(p: GuideProgress): GuideStepKey {
   // Nothing left to label: the AI has nothing to do, whatever its state.
   if (!left) return 'ready'
   if (!p.hasAccess || !p.acknowledged) return 'connect'
-  // A label whose rows all have labels cannot be shown more examples, so it
-  // never holds the step; with the queue still open we cannot tell, so it does.
-  const shortLabel = p.confirmedPerLabel !== null && p.labels.some((label) => (p.confirmedPerLabel![label] ?? 0) < SHOW_PER_LABEL)
-  if (shortLabel || p.confirmedTotal < SHOW_TOTAL) return 'show'
+  if (!showMet(p)) return 'show'
   if (!agreementPassed(p.agreement)) return 'try'
   // Pending items remain and the check passed: the AI labels the rest.
   return 'rest'
@@ -83,12 +121,12 @@ export function guideStep(p: GuideProgress): GuideStepKey {
  * agreement check passed and nothing is left; "Ready to train" when nothing is
  * left. */
 export function stepsMet(p: GuideProgress): Record<GuideStepKey, boolean> {
-  const shortLabel = p.confirmedPerLabel !== null && p.labels.some((label) => (p.confirmedPerLabel![label] ?? 0) < SHOW_PER_LABEL)
   const passed = agreementPassed(p.agreement)
   return {
     labels: p.labels.length >= 2,
     connect: p.hasAccess && p.acknowledged,
-    show: !shortLabel && p.confirmedTotal >= SHOW_TOTAL,
+    // Reached in full: a label that ran out of items moved the step on, but is skipped, not done.
+    show: !(p.confirmedPerLabel !== null && p.labels.some((label) => (p.confirmedPerLabel![label] ?? 0) < SHOW_PER_LABEL)) && p.confirmedTotal >= SHOW_TOTAL,
     try: passed,
     rest: passed && p.pending === 0,
     ready: p.pending === 0,
@@ -162,6 +200,18 @@ export function writePendingDescriptions(datasetId: Id, descriptions: Record<str
   } catch {
     // No storage: the descriptions are kept in memory for this visit.
   }
+}
+
+/** The waiting sentences to put in the prompt: those for labels whose
+ * definition is still empty, or every one when they were typed this visit
+ * (`fresh`), so newer than the prompt. Empty when nothing would change. */
+export function definitionsToFill(
+  defined: Record<string, string>,
+  waiting: Record<string, string>,
+  fresh: boolean,
+): Record<string, string> {
+  const fill = Object.entries(waiting).filter(([label, text]) => text.trim() && (fresh || !defined[label]?.trim()))
+  return Object.fromEntries(fill.filter(([label, text]) => defined[label] !== text))
 }
 
 // ---------------------------------------------------------------------------

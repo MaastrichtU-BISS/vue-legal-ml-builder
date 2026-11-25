@@ -18,6 +18,8 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   /** Why the backend refused a prompt edit, shown beside the editor. */
   const promptError = ref<string | null>(null)
   const error = ref<string | null>(null)
+  /** The refusal's `code` behind `error`, when the adapter gave one. */
+  const errorCode = ref<string | null>(null)
   const notice = ref('')
   const isBusy = ref(false)
   /** The monthly limit of the shared key is used up. */
@@ -65,6 +67,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   async function run(datasetId: Id, action: () => Promise<void>, fallback: string, errorRef: Ref<string | null> = error) {
     isBusy.value = true
     error.value = null
+    errorCode.value = null
     errorRef.value = null
     notice.value = ''
     try {
@@ -72,6 +75,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     } catch (err) {
       const refusal = err as LlmRefusalError
       errorRef.value = err instanceof Error ? err.message : fallback
+      errorCode.value = refusal?.code ?? null
       if (refusal?.code === 'budget_exhausted') budgetExhausted.value = true
       if (STATUS_CODES.includes(refusal?.code ?? '')) await loadStatus(datasetId).catch(() => undefined)
     } finally {
@@ -211,7 +215,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   onUnmounted(stopJob)
 
   return {
-    status, suggestions, agreement, prompt, promptError, error, notice, isBusy, budgetExhausted, hasAccess, ready,
+    status, suggestions, agreement, prompt, promptError, error, errorCode, notice, isBusy, budgetExhausted, hasAccess, ready,
     estimate, job,
     refresh, refreshProgress, saveKey, deleteKey, acknowledge, suggest, bulkAccept, loadPrompt, savePrompt,
     estimateJob, clearEstimate, startJob,

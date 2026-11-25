@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, onMounted, ref, watch } from 'vue'
 import { count } from '../annotation/annotationState'
+import { definitionsToFill, readPendingDescriptions, writePendingDescriptions } from '../annotation/guide'
 import { SUGGEST_BATCH_SIZE, batchSummary, percent, queueOrder, tokens } from '../annotation/llmAssist'
 import { useLlmAssist } from '../composables/useLlmAssist'
 import type { Id, LlmAgreement, LlmStatus, LlmSuggestion, MLAdapter } from '../types'
@@ -106,7 +107,31 @@ async function onSaveKey(event: Event) {
   if (!error.value) form.reset()
 }
 
+/** Label sentences named in the guide wait in browser storage until the
+ * Project allows sending text. With the guide hidden, this panel is where that
+ * happens, so it saves them as a new prompt version once it is allowed,
+ * filling only definitions that are still empty. Inside the guide, the guide
+ * does this itself. */
+async function saveWaitingSentences() {
+  const datasetId = props.datasetId
+  const waiting = readPendingDescriptions(datasetId)
+  if (props.embedded || !waiting || !props.adapter.getLlmPrompt || !props.adapter.updateLlmPrompt) return
+  await loadPrompt(datasetId)
+  const loaded = prompt.value
+  if (datasetId !== props.datasetId || promptError.value || !loaded) return
+  const defined = loaded.definitions ?? {}
+  const fill = definitionsToFill(defined, waiting, false)
+  if (Object.keys(fill).length) {
+    await savePrompt(datasetId, { template: loaded.template, definitions: { ...defined, ...fill } })
+    if (promptError.value) return
+  }
+  writePendingDescriptions(datasetId, null)
+}
+
 onMounted(() => refresh(props.datasetId))
+watch(ready, (value) => {
+  if (value) void saveWaitingSentences()
+})
 watch(() => props.datasetId, (id) => refresh(id))
 watch(() => props.labelsVersion, () => refreshProgress(props.datasetId))
 watch(suggestions, (value) => emit('suggestions', value))

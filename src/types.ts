@@ -318,6 +318,15 @@ export interface LlmKeyInput {
   api_key: string
 }
 
+/** One of a provider's chat models, as legal-ml-core's /api/llm/models lists it. */
+export interface LlmModelOption {
+  id: string
+  name?: string
+}
+
+/** What a model listing checks: a key typed in, or the key already saved. */
+export type LlmModelsRequest = { base_url: string; api_key: string } | { use_saved_key: true }
+
 export interface LlmAcknowledgement {
   destination: string
   created_at: string
@@ -737,6 +746,9 @@ export interface MLAdapter {
   /** Write-only: the key is never returned. */
   saveLlmKey?(key: LlmKeyInput): Promise<{ base_url: string; model: string }>
   deleteLlmKey?(): Promise<void>
+  /** A provider's chat models, which also checks the key. Rejects with code
+   * `key_rejected` when the provider refused the key. The key is not kept. */
+  listLlmModels?(request: LlmModelsRequest): Promise<{ models: LlmModelOption[] }>
   /** `destination` must be the one the user was shown. */
   acknowledgeLlmDestination?(datasetId: Id, destination: string): Promise<LlmAcknowledgement>
   getLlmPrompt?(datasetId: Id): Promise<LlmPrompt>

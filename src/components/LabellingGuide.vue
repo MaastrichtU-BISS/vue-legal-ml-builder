@@ -2,8 +2,11 @@
 import { computed, inject, nextTick, onMounted, ref, watch } from 'vue'
 import {
   GUIDE_STEPS,
+  SHOW_TOTAL,
+  definitionsToFill,
   guideStep,
   readPendingDescriptions,
+  showTargets,
   stepIndex,
   stepsMet,
   writePendingDescriptions,
@@ -11,8 +14,10 @@ import {
   type GuideStepKey,
 } from '../annotation/guide'
 import { useLlmAssist } from '../composables/useLlmAssist'
-import type { AnnotationStats, AnnotationTask, Dataset, Id, LlmAgreement, LlmStatus, LlmSuggestion, MLAdapter } from '../types'
+import type { AnnotationStats, AnnotationTask, Dataset, Id, LlmAgreement, LlmKeyInput, LlmStatus, LlmSuggestion, MLAdapter } from '../types'
+import GuideConnectStep from './GuideConnectStep.vue'
 import GuideLabelsStep from './GuideLabelsStep.vue'
+import GuideShowStep from './GuideShowStep.vue'
 import LlmAssistPanel from './LlmAssistPanel.vue'
 import Icon from './shared/Icon.vue'
 
@@ -34,6 +39,8 @@ const props = defineProps<{
   /** Bumped by the workspace after each saved label. */
   labelsVersion: number
   currentTaskId?: Id | null
+  /** The item on screen is kept aside to test the model. */
+  currentHoldout?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'hide'): void
@@ -48,7 +55,7 @@ const emit = defineEmits<{
 }>()
 
 const llm = useLlmAssist(props.adapter, inject<number>('vmlb:pollInterval', 3000))
-const { status, agreement, prompt, promptError, hasAccess, ready } = llm
+const { status, agreement, prompt, promptError, hasAccess, ready, budgetExhausted } = llm
 
 const loadState = ref<'loading' | 'ready' | 'error'>('loading')
 /** Confirmed labels per label; null when the server cannot count them. With
@@ -88,7 +95,8 @@ const descriptions = computed<Record<string, string>>(() => {
 
 const progress = computed<GuideProgress>(() => ({
   labels: props.labels,
-  hasAccess: hasAccess.value,
+  // A shared allowance used up sends the student back to Connect AI.
+  hasAccess: hasAccess.value && !budgetExhausted.value,
   acknowledged: !!status.value?.acknowledged,
   confirmedPerLabel: props.labels.length >= 2 ? perLabel.value : null,
   confirmedTotal: confirmedTotal.value,
@@ -99,6 +107,12 @@ const step = computed<GuideStepKey>(() => guideStep(progress.value))
 const met = computed(() => stepsMet(progress.value))
 const current = computed(() => stepIndex(step.value))
 const currentStep = computed(() => GUIDE_STEPS[current.value])
+const targets = computed(() => showTargets(progress.value))
+/** Connected in this visit: Show it how opens with the hand-off line. */
+const justConnected = ref(false)
+/** Phones, in Show it how: the panel folds to one line until Details opens it. */
+const detailsOpen = ref(false)
+const collapsible = computed(() => step.value === 'show')
 const showing = computed(() => (loadState.value === 'ready' && (props.stats || !props.statsLoading) ? 'ready' : loadState.value === 'error' ? 'error' : 'loading'))
 
 const PAGE = 500
@@ -242,11 +256,8 @@ async function syncDescriptions(): Promise<void> {
     const loaded = prompt.value
     if (!loaded || !props.adapter.updateLlmPrompt) return
     const defined = loaded.definitions ?? {}
-    const fill = Object.fromEntries(
-      Object.entries(waiting).filter(([label, text]) => text.trim() && (pendingFresh.value || !defined[label]?.trim())),
-    )
-    const changed = Object.entries(fill).some(([label, text]) => defined[label] !== text)
-    if (changed) {
+    const fill = definitionsToFill(defined, waiting, pendingFresh.value)
+    if (Object.keys(fill).length) {
       await llm.savePrompt(datasetId, { template: loaded.template, definitions: { ...defined, ...fill } })
       if (datasetId !== props.datasetId) return
       if (promptError.value) {
@@ -276,6 +287,17 @@ async function onLabelsSaved(saved: { dataset: Dataset; labels: string[]; descri
   await syncDescriptions()
 }
 
+/** Step 2: saves the key through the guide's own LLM state. */
+async function connectKey(key: LlmKeyInput) {
+  await llm.saveKey(props.datasetId, key)
+  return llm.error.value ? { message: llm.error.value, code: llm.errorCode.value } : null
+}
+
+async function allowSending() {
+  await llm.acknowledge(props.datasetId)
+  return !llm.error.value
+}
+
 /** Today's panel, inside the step, keeps the guide's step up to date. */
 function onPanelState(state: { status: LlmStatus | null; agreement: LlmAgreement | null }) {
   if (state.status) status.value = state.status
@@ -291,7 +313,8 @@ watch(() => props.labelsVersion, async () => {
   await llm.refreshProgress(props.datasetId)
 })
 // Access arriving (a key saved, sending allowed) is when waiting descriptions can be saved.
-watch(ready, (value) => {
+watch(ready, (value, was) => {
+  if (value && !was && loadState.value === 'ready') justConnected.value = true
   if (value && pendingDescriptions.value) syncDescriptions()
 })
 // Focus follows a step change, not the first render.
@@ -307,90 +330,135 @@ watch([step, showing], async ([next, state]) => {
 </script>
 
 <template>
-  <section class="vmlb-guide" aria-labelledby="vmlb-guide-title" :aria-busy="showing === 'loading' ? 'true' : undefined">
-    <div class="vmlb-guide-head">
-      <h2 id="vmlb-guide-title" class="vmlb-guide-title">Label with AI help</h2>
-      <button type="button" class="vmlb-guide-hide" @click="emit('hide')">Hide guide</button>
+  <section
+    class="vmlb-guide"
+    :class="{ 'is-collapsible': showing === 'ready' && collapsible, 'is-open': detailsOpen }"
+    aria-labelledby="vmlb-guide-title"
+    :aria-busy="showing === 'loading' ? 'true' : undefined"
+  >
+    <!-- Phones in Show it how: one line, the six-segment bar and Details. -->
+    <div v-if="showing === 'ready' && collapsible" class="vmlb-guide-folded">
+      <div class="vmlb-guide-folded-line">
+        <p>Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <span class="vmlb-num">{{ targets.total }} of {{ SHOW_TOTAL }} examples</span></p>
+        <button
+          type="button"
+          class="vmlb-guide-details vmlb-guide-target"
+          :aria-expanded="detailsOpen ? 'true' : 'false'"
+          aria-controls="vmlb-guide-body"
+          @click="detailsOpen = !detailsOpen"
+        >
+          Details
+        </button>
+      </div>
+      <div class="vmlb-guide-segments" aria-hidden="true">
+        <span v-for="(s, i) in GUIDE_STEPS" :key="s.key" :class="{ 'is-filled': i <= current }" />
+      </div>
     </div>
+    <p v-if="showing === 'ready' && step === 'show'" class="vmlb-guide-sr" aria-live="polite">
+      {{ targets.total }} of {{ SHOW_TOTAL }} examples labelled.
+    </p>
 
-    <div v-if="showing === 'loading'" class="vmlb-guide-skeleton" role="status">
-      <span class="vmlb-guide-sr">Loading your labelling progress</span>
-      <div class="vmlb-skeleton vmlb-guide-skeleton-rail" />
-      <hr class="vmlb-guide-rule" />
-      <div class="vmlb-skeleton vmlb-skeleton-line" style="width: 40%" />
-      <div class="vmlb-skeleton vmlb-skeleton-line" style="width: 85%" />
-      <div class="vmlb-skeleton vmlb-guide-skeleton-body" />
-    </div>
+    <div id="vmlb-guide-body" class="vmlb-guide-body">
+      <div class="vmlb-guide-head">
+        <h2 id="vmlb-guide-title" class="vmlb-guide-title">Label with AI help</h2>
+        <button type="button" class="vmlb-guide-hide" @click="emit('hide')">Hide guide</button>
+      </div>
 
-    <div v-else-if="showing === 'error'" class="vmlb-guide-failed">
-      <p role="alert"><Icon name="alert" /> Couldn't load your labelling progress.</p>
-      <button type="button" class="vmlb-btn-secondary vmlb-guide-target" @click="load">Try again</button>
-    </div>
+      <div v-if="showing === 'loading'" class="vmlb-guide-skeleton" role="status">
+        <span class="vmlb-guide-sr">Loading your labelling progress</span>
+        <div class="vmlb-skeleton vmlb-guide-skeleton-rail" />
+        <hr class="vmlb-guide-rule" />
+        <div class="vmlb-skeleton vmlb-skeleton-line" style="width: 40%" />
+        <div class="vmlb-skeleton vmlb-skeleton-line" style="width: 85%" />
+        <div class="vmlb-skeleton vmlb-guide-skeleton-body" />
+      </div>
 
-    <template v-else>
-      <nav class="vmlb-guide-rail" aria-label="Steps">
-        <ol>
-          <li
-            v-for="(s, i) in GUIDE_STEPS"
-            :key="s.key"
-            class="vmlb-guide-rail-step"
-            :class="{ 'is-done': i < current && met[s.key], 'is-skipped': i < current && !met[s.key], 'is-current': i === current }"
-            :aria-current="i === current ? 'step' : undefined"
-          >
-            <span class="vmlb-guide-marker">
-              <template v-if="i < current && met[s.key]"><Icon name="check" /><span class="vmlb-guide-sr">Done:</span></template>
-              <template v-else-if="i < current"><span class="vmlb-guide-sr">Skipped:</span>{{ i + 1 }}</template>
-              <template v-else>{{ i + 1 }}</template>
-            </span>
-            <span class="vmlb-guide-rail-name">{{ s.short }}</span>
-          </li>
-        </ol>
-      </nav>
-      <div class="vmlb-guide-compact">
-        <p>Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <strong>{{ currentStep.short }}</strong></p>
-        <div class="vmlb-guide-segments" aria-hidden="true">
-          <span v-for="(s, i) in GUIDE_STEPS" :key="s.key" :class="{ 'is-filled': i <= current }" />
+      <div v-else-if="showing === 'error'" class="vmlb-guide-failed">
+        <p role="alert"><Icon name="alert" /> Couldn't load your labelling progress.</p>
+        <button type="button" class="vmlb-btn-secondary vmlb-guide-target" @click="load">Try again</button>
+      </div>
+
+      <template v-else>
+        <nav class="vmlb-guide-rail" aria-label="Steps">
+          <ol>
+            <li
+              v-for="(s, i) in GUIDE_STEPS"
+              :key="s.key"
+              class="vmlb-guide-rail-step"
+              :class="{ 'is-done': i < current && met[s.key], 'is-skipped': i < current && !met[s.key], 'is-current': i === current }"
+              :aria-current="i === current ? 'step' : undefined"
+            >
+              <span class="vmlb-guide-marker">
+                <template v-if="i < current && met[s.key]"><Icon name="check" /><span class="vmlb-guide-sr">Done:</span></template>
+                <template v-else-if="i < current"><span class="vmlb-guide-sr">Skipped:</span>{{ i + 1 }}</template>
+                <template v-else>{{ i + 1 }}</template>
+              </span>
+              <span class="vmlb-guide-rail-name">{{ s.short }}</span>
+            </li>
+          </ol>
+        </nav>
+        <div class="vmlb-guide-compact">
+          <p>Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <strong>{{ currentStep.short }}</strong></p>
+          <div class="vmlb-guide-segments" aria-hidden="true">
+            <span v-for="(s, i) in GUIDE_STEPS" :key="s.key" :class="{ 'is-filled': i <= current }" />
+          </div>
         </div>
-      </div>
 
-      <hr class="vmlb-guide-rule" />
+        <hr class="vmlb-guide-rule" />
 
-      <div v-if="sentencesError && pendingDescriptions" class="vmlb-guide-sentences-error">
-        <p role="alert"><Icon name="alert" /> Your labels are saved, but their sentences aren't saved yet: {{ sentencesError }}</p>
-        <button type="button" class="vmlb-btn-secondary vmlb-guide-target" :disabled="syncBusy" :aria-busy="syncBusy" @click="syncDescriptions">{{ syncBusy ? 'Trying again…' : 'Try again' }}</button>
-      </div>
+        <div v-if="sentencesError && pendingDescriptions" class="vmlb-guide-sentences-error">
+          <p role="alert"><Icon name="alert" /> Your labels are saved, but their sentences aren't saved yet: {{ sentencesError }}</p>
+          <button type="button" class="vmlb-btn-secondary vmlb-guide-target" :disabled="syncBusy" :aria-busy="syncBusy" @click="syncDescriptions">{{ syncBusy ? 'Trying again…' : 'Try again' }}</button>
+        </div>
 
-      <div class="vmlb-guide-step">
-        <h3 ref="heading" class="vmlb-guide-step-title" tabindex="-1">{{ currentStep.title }}</h3>
-        <p v-if="currentStep.time" class="vmlb-guide-time">{{ currentStep.time }}</p>
+        <div class="vmlb-guide-step">
+          <h3 ref="heading" class="vmlb-guide-step-title" tabindex="-1">{{ currentStep.title }}</h3>
+          <p v-if="currentStep.time && !(step === 'show' && justConnected)" class="vmlb-guide-time">{{ currentStep.time }}</p>
 
-        <GuideLabelsStep
-          v-if="step === 'labels' && adapter.setDatasetLabels"
-          :adapter="adapter"
-          :dataset-id="datasetId"
-          :labels="labels"
-          :in-use="inUseLabels"
-          :descriptions="descriptions"
-          @saved="onLabelsSaved"
-        />
-        <p v-else-if="step === 'labels'" class="vmlb-guide-text">Labels can't be named here. Ask whoever runs this platform to add them.</p>
-        <!-- Temporary (BAIGLE #193): steps 2–6 show today's AI controls under the
-             step title until #194–#196 give each step its own words and controls. -->
-        <LlmAssistPanel
-          v-else
-          embedded
-          :adapter="adapter"
-          :project-id="projectId"
-          :dataset-id="datasetId"
-          :labels="labels"
-          :current-task-id="currentTaskId ?? null"
-          :labels-version="labelsVersion"
-          @suggestions="emit('suggestions', $event)"
-          @labelled="emit('labelled')"
-          @state="onPanelState"
-        />
-      </div>
-    </template>
+          <GuideLabelsStep
+            v-if="step === 'labels' && adapter.setDatasetLabels"
+            :adapter="adapter"
+            :dataset-id="datasetId"
+            :labels="labels"
+            :in-use="inUseLabels"
+            :descriptions="descriptions"
+            @saved="onLabelsSaved"
+          />
+          <p v-else-if="step === 'labels'" class="vmlb-guide-text">Labels can't be named here. Ask whoever runs this platform to add them.</p>
+          <GuideConnectStep
+            v-else-if="step === 'connect'"
+            :adapter="adapter"
+            :status="status"
+            :has-access="hasAccess"
+            :budget-exhausted="budgetExhausted"
+            :save-key="connectKey"
+            :allow="allowSending"
+            @myself="emit('hide')"
+          />
+          <GuideShowStep
+            v-else-if="step === 'show'"
+            :targets="targets"
+            :holdout="!!currentHoldout"
+            :just-connected="justConnected"
+          />
+          <!-- Temporary (BAIGLE #193): steps 4–6 show today's AI controls under the
+               step title until #195–#196 give each step its own words and controls. -->
+          <LlmAssistPanel
+            v-else
+            embedded
+            :adapter="adapter"
+            :project-id="projectId"
+            :dataset-id="datasetId"
+            :labels="labels"
+            :current-task-id="currentTaskId ?? null"
+            :labels-version="labelsVersion"
+            @suggestions="emit('suggestions', $event)"
+            @labelled="emit('labelled')"
+            @state="onPanelState"
+          />
+        </div>
+      </template>
+    </div>
   </section>
 </template>
 
@@ -469,10 +537,25 @@ watch([step, showing], async ([next, state]) => {
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 
+.vmlb-guide-folded { display: none; }
+.vmlb-guide-folded-line { display: flex; align-items: center; justify-content: space-between; gap: var(--vmlb-space-sm); }
+.vmlb-guide-folded-line p { margin: 0; font-size: var(--vmlb-font-size-sm); }
+.vmlb-guide-details {
+  padding: 0 var(--vmlb-space-2xs); border: 0; background: none; color: var(--vmlb-accent-strong);
+  font: inherit; font-size: var(--vmlb-font-size-sm); font-weight: 600;
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.vmlb-num { font-variant-numeric: tabular-nums; }
+
 /* Phones: the rail becomes one line over a six-segment bar. */
 @media (max-width: 640px) {
   .vmlb-guide { padding: var(--vmlb-space-sm) var(--vmlb-space-md); }
   .vmlb-guide-rail { display: none; }
   .vmlb-guide-compact { display: block; }
+  /* Show it how folds to one line, so the item sits above the fold. */
+  .vmlb-guide.is-collapsible .vmlb-guide-folded { display: block; }
+  .vmlb-guide.is-collapsible .vmlb-guide-compact { display: none; }
+  .vmlb-guide.is-collapsible:not(.is-open) .vmlb-guide-body { display: none; }
+  .vmlb-guide.is-collapsible.is-open .vmlb-guide-folded { margin-bottom: var(--vmlb-space-sm); }
 }
 </style>
