@@ -77,6 +77,8 @@ function onProviderChange() {
  * platform won't use is not the key's fault. */
 function refused(message: string, code: string | null): string {
   if (code === 'key_rejected') return `That key was refused by ${provider.value.name}. Check it and paste it again.`
+  // The server's own words, e.g. a space or a stray character in the paste.
+  if (code === 'invalid_request') return `${message} Check it and paste it again.`
   // `credential_unusable` from saving is also how the platform says it can't
   // store keys at all; only its base-URL refusals are about the address.
   if (code === 'base_url_refused' || (code === 'credential_unusable' && /base URL/i.test(message))) {
@@ -88,7 +90,7 @@ function refused(message: string, code: string | null): string {
 /** What a check of the key with the provider found. `unchecked`: it could
  * not be checked (provider unreachable, no listing), which never blocks saving. */
 interface KeyCheck {
-  outcome: 'ok' | 'key_rejected' | 'address_refused' | 'unchecked'
+  outcome: 'ok' | 'key_rejected' | 'key_malformed' | 'address_refused' | 'unchecked'
   code: string | null
   message: string
   models: LlmModelOption[]
@@ -102,11 +104,12 @@ function signature(input: { base_url: string; api_key: string }) {
   return JSON.stringify([providerId.value, input.base_url, input.api_key])
 }
 
-/** Lists the provider's models with this key, which checks it. A check
- * running or passed for the same key, provider and address is reused. */
+/** Lists the provider's models with this key, which checks it. A check still
+ * running, or one that passed, for the same key, provider and address is
+ * reused; a refusal is asked again, since the account may have been fixed. */
 function checkKey(input: { base_url: string; api_key: string }): Promise<KeyCheck> {
   const sig = signature(input)
-  if (lastCheck?.signature === sig && lastCheck.settled?.outcome !== 'unchecked') return lastCheck.result
+  if (lastCheck?.signature === sig && (lastCheck.settled === null || lastCheck.settled.outcome === 'ok')) return lastCheck.result
   const result = props.adapter.listLlmModels!(input).then(
     (answer): KeyCheck => ({ outcome: 'ok', code: null, message: '', models: answer.models }),
     (err): KeyCheck => {
@@ -115,6 +118,8 @@ function checkKey(input: { base_url: string; api_key: string }): Promise<KeyChec
       const message = refusal?.message ?? ''
       if (code === 'key_rejected') return { outcome: 'key_rejected', code, message, models: [] }
       if (code === 'base_url_refused') return { outcome: 'address_refused', code, message, models: [] }
+      // The key itself can't be sent (spaces, characters no key has): saving it would only fail later.
+      if (code === 'invalid_request' && /API key/i.test(message)) return { outcome: 'key_malformed', code, message, models: [] }
       return { outcome: 'unchecked', code, message, models: [] }
     },
   )
@@ -186,7 +191,7 @@ async function onSaveKey() {
     let verified = false
     if (props.adapter.listLlmModels) {
       const check = await checkKey({ base_url: key.base_url, api_key: key.api_key })
-      if (check.outcome === 'key_rejected' || check.outcome === 'address_refused') {
+      if (check.outcome === 'key_rejected' || check.outcome === 'key_malformed' || check.outcome === 'address_refused') {
         apiKey.value = ''
         await showRefusal(check)
         return
@@ -200,6 +205,8 @@ async function onSaveKey() {
       keyVerified.value = verified
       ownKeyChosen.value = false
     }
+    // The check's signature holds the key: drop it once the key is sent.
+    lastCheck = null
   } finally {
     saving.value = false
   }

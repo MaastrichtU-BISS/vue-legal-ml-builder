@@ -1037,6 +1037,38 @@ describe('step 2, Connect AI: the key', () => {
     wrapper.unmount()
   })
 
+  it("saves nothing for a key the server says has characters a key can't contain", async () => {
+    // legal-ml-core's POST /llm/models: 400 invalid_request, BAD_KEY.
+    const listLlmModels = vi.fn().mockRejectedValue(refusal("The API key has characters an API key can't contain.", 'invalid_request'))
+    const saveLlmKey = vi.fn()
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels, saveLlmKey } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+
+    expect(saveLlmKey).not.toHaveBeenCalled()
+    expect(alerts(wrapper).join(' ')).toContain("The API key has characters an API key can't contain. Check it and paste it again.")
+    wrapper.unmount()
+  })
+
+  it('asks the provider again for a key it refused before, in case the account was fixed', async () => {
+    // Typing the key checks it; Save asks again rather than trusting the refusal.
+    const listLlmModels = vi.fn()
+      .mockRejectedValueOnce(refusal('The provider rejected this API key.', 'key_rejected'))
+      .mockRejectedValueOnce(refusal('The provider rejected this API key.', 'key_rejected'))
+      .mockResolvedValue({ models: [{ id: 'anthropic/claude-haiku-5.5' }] })
+    const saveLlmKey = vi.fn().mockResolvedValue({ base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-haiku-5.5' })
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels, saveLlmKey } })
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+    expect(saveLlmKey).not.toHaveBeenCalled()
+
+    await typeKey(wrapper)
+    await submitKey(wrapper)
+    expect(listLlmModels.mock.calls.length).toBeGreaterThanOrEqual(3)
+    expect(saveLlmKey).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('says when the shared key’s meter is down, with the own-key form open', async () => {
     const down = llmStatus({ shared_key_available: false, acknowledged: false })
     const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(down) } })
