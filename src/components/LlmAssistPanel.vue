@@ -124,6 +124,8 @@ async function saveWaitingSentences() {
   if (Object.keys(fill).length) {
     await savePrompt(datasetId, { template: loaded.template, definitions: { ...defined, ...fill } })
     if (promptError.value) return
+    // Saved on the student's behalf: "Saved as version N" is for their own edits.
+    notice.value = ''
   }
   writePendingDescriptions(datasetId, null)
 }

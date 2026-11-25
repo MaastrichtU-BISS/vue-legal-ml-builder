@@ -22,27 +22,39 @@ tagged `vX.Y.Z`.
   says in one plain line what a key is and that the provider may charge.
   With an adapter that lists models, pasting the key checks it and turns the
   Model field into the provider's model list; otherwise the model is typed.
-  Consent says the item text and label descriptions are sent to the named
-  destination and that held-out items never are. "Label it myself instead"
+  Save key checks the key with the provider first (unless that check already
+  passed for the same key, provider and address) and doesn't save a refused
+  key or address; a Save asked for while the pasted key is still being
+  checked waits for that check instead of being dropped. Consent says "Your
+  key works." only after a passed check, and "Your key is saved." when the
+  key couldn't be checked. It says the item text, label descriptions and a
+  few labelled items, as examples, are sent to the named destination and
+  that held-out items never are. The key field asks password managers to
+  leave it alone. "Label it myself instead"
   is always there and hides the guide for the Dataset, like "Hide guide".
   States: "Checking your key…" on the button while the key is checked or
   saved; a refused key says "That key was refused by <provider>. Check it and
-  paste it again." with the provider's reason; a failed consent says
-  "Couldn't save that. Try again."; a shared key whose meter is down, or a
+  paste it again."; a base URL the platform won't use says "That provider
+  address can't be used: <reason>"; a failed consent says "Couldn't save
+  that. Try again.", or, when the destination changed meanwhile, "The AI
+  destination changed to <new>. Check it and allow again."; a shared key whose meter is down, or a
   shared allowance used up, says so as an alert with the own-key form open.
-  On success, step 3 opens with "Connected. Before it suggests anything, show
+  After Allow, step 3 opens with "Connected. Before it suggests anything, show
   it 10 examples so it learns what you mean. About 5 minutes."
 - **Step 3, "Show it how"** shows a count chip per label (done at 3, warning
   under 3), the total out of 10, and, on a held-out item, "This item is kept
   aside to test your model later. You label these yourself; the AI never sees
-  them." The item stays in its own box below the panel. A label that can't
-  reach 3 with the items left says "Only N <label> rows left. That's enough
-  to continue." and no longer holds the step (`showTargets`, exported); it is
+  them. It doesn't count toward the 10." The item stays in its own box below
+  the panel. A label that can't reach 3 with the items left says "Only N
+  items are left to label, so <label> can reach at most M. That's enough to
+  continue." and no longer holds the step (`showTargets`, exported); it is
   marked skipped, not done. The count is announced in a polite live region.
 - **Phones (640px and under), in step 3**: the panel folds to one line,
   "Step 3 of 6 · 6 of 10 examples", over the six-segment bar, with a
   "Details" toggle (`aria-expanded`) that opens the full step, so the item
-  sits above the fold.
+  sits above the fold. After Allow it opens unfolded, so the hand-off line is
+  seen; arriving folded, focus goes to Details rather than the hidden step
+  heading.
 - **`MLAdapter.listLlmModels`** (optional), and the self-hosted adapter's
   `POST /api/llm/models`, to list a provider's models and check a key. The
   provider list (`LLM_PROVIDERS`) mirrors BAIGLE's.
@@ -59,7 +71,9 @@ tagged `vX.Y.Z`.
 - Label sentences named in the guide, then left waiting because the Project
   had not allowed sending text, are now saved by today's panel once sending
   is allowed there, with the guide hidden. Before, they waited until the
-  guide showed again.
+  guide showed again. That save shows no "Saved as version N" notice, which
+  stays for a student's own prompt edits; inside the guide, only the guide
+  saves them.
 
 ## [0.14.0] - 2026-11-25
 

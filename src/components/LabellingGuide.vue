@@ -69,6 +69,7 @@ const pendingFresh = ref(false)
 /** Why the descriptions saved with the labels aren't in the prompt yet. */
 const sentencesError = ref<string | null>(null)
 const heading = ref<HTMLElement | null>(null)
+const detailsToggle = ref<HTMLButtonElement | null>(null)
 let announcedLoad = false
 
 const inUseLabels = computed(() => {
@@ -108,11 +109,18 @@ const met = computed(() => stepsMet(progress.value))
 const current = computed(() => stepIndex(step.value))
 const currentStep = computed(() => GUIDE_STEPS[current.value])
 const targets = computed(() => showTargets(progress.value))
-/** Connected in this visit: Show it how opens with the hand-off line. */
+/** Sending allowed in this visit: Show it how opens with the hand-off line. */
 const justConnected = ref(false)
 /** Phones, in Show it how: the panel folds to one line until Details opens it. */
 const detailsOpen = ref(false)
 const collapsible = computed(() => step.value === 'show')
+/** The width at which the guide's styles fold Show it how (see the media query below). */
+const PHONE_QUERY = '(max-width: 640px)'
+/** The step's body is folded away on a phone, so its heading can't take focus. */
+function folded(): boolean {
+  if (!collapsible.value || detailsOpen.value) return false
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(PHONE_QUERY).matches
+}
 const showing = computed(() => (loadState.value === 'ready' && (props.stats || !props.statsLoading) ? 'ready' : loadState.value === 'error' ? 'error' : 'loading'))
 
 const PAGE = 500
@@ -293,9 +301,17 @@ async function connectKey(key: LlmKeyInput) {
   return llm.error.value ? { message: llm.error.value, code: llm.errorCode.value } : null
 }
 
+/** Step 2's Allow. Set before the step changes, so Show it how opens with
+ * the hand-off line, unfolded on a phone so the line is seen. */
 async function allowSending() {
+  const wasOpen = detailsOpen.value
+  justConnected.value = true
+  detailsOpen.value = true
   await llm.acknowledge(props.datasetId)
-  return !llm.error.value
+  if (!llm.error.value) return null
+  justConnected.value = false
+  detailsOpen.value = wasOpen
+  return { code: llm.errorCode.value }
 }
 
 /** Today's panel, inside the step, keeps the guide's step up to date. */
@@ -313,8 +329,7 @@ watch(() => props.labelsVersion, async () => {
   await llm.refreshProgress(props.datasetId)
 })
 // Access arriving (a key saved, sending allowed) is when waiting descriptions can be saved.
-watch(ready, (value, was) => {
-  if (value && !was && loadState.value === 'ready') justConnected.value = true
+watch(ready, (value) => {
   if (value && pendingDescriptions.value) syncDescriptions()
 })
 // Focus follows a step change, not the first render.
@@ -325,7 +340,9 @@ watch([step, showing], async ([next, state]) => {
   shownStep = next
   if (previous === null || previous === next) return
   await nextTick()
-  heading.value?.focus()
+  // On a phone, Show it how folds its heading away: Details takes focus instead.
+  if (folded()) detailsToggle.value?.focus()
+  else heading.value?.focus()
 })
 </script>
 
@@ -341,6 +358,7 @@ watch([step, showing], async ([next, state]) => {
       <div class="vmlb-guide-folded-line">
         <p>Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <span class="vmlb-num">{{ targets.total }} of {{ SHOW_TOTAL }} examples</span></p>
         <button
+          ref="detailsToggle"
           type="button"
           class="vmlb-guide-details vmlb-guide-target"
           :aria-expanded="detailsOpen ? 'true' : 'false'"

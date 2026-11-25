@@ -17,6 +17,14 @@ const props = defineProps<{
 }>()
 
 const capped = computed(() => props.targets.labels.filter((l) => l.capped && l.count < SHOW_PER_LABEL))
+
+/** A capped label's target is its count plus the items left, so the items
+ * left are the difference; which label those items will get isn't known. */
+function cappedLine(l: { label: string; count: number; target: number }): string {
+  const left = l.target - l.count
+  const items = left === 1 ? '1 item is' : `${left} items are`
+  return `Only ${items} left to label, so ${l.label} can reach at most ${l.target}. That's enough to continue.`
+}
 </script>
 
 <template>
@@ -25,7 +33,8 @@ const capped = computed(() => props.targets.labels.filter((l) => l.capped && l.c
       Connected. Before it suggests anything, show it {{ SHOW_TOTAL }} examples so it learns what you mean. About 5 minutes.
     </p>
     <p v-if="holdout" class="vmlb-guide-holdout">
-      This item is kept aside to test your model later. You label these yourself; the AI never sees them.
+      This item is kept aside to test your model later. You label these yourself; the AI never sees them. It doesn't
+      count toward the {{ SHOW_TOTAL }}.
     </p>
     <p v-else class="vmlb-guide-text">
       Label a few items yourself first. The AI learns what you mean from these: at least {{ SHOW_PER_LABEL }} of each label,
@@ -46,7 +55,7 @@ const capped = computed(() => props.targets.labels.filter((l) => l.capped && l.c
     <p v-else class="vmlb-guide-chip-total vmlb-num" aria-hidden="true">{{ targets.total }} of {{ SHOW_TOTAL }} labelled</p>
 
     <p v-for="l in capped" :key="l.label" class="vmlb-guide-text">
-      Only {{ l.target }} {{ l.label }} rows left. That's enough to continue.
+      {{ cappedLine(l) }}
     </p>
   </div>
 </template>
