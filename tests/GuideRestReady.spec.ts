@@ -255,6 +255,16 @@ describe('step 5, Do the rest: a failed job', () => {
 describe('step 5, Do the rest: when the AI has finished', () => {
   const twelve = Array.from({ length: 12 }, (_, i) => aiLabel(i))
 
+  it("arriving from Try it with its suggestion for the item on screen, still chooses the items and sees the cost first", async () => {
+    const leftover = llmSuggestion({ id: 'left', task_id: item.id, label: 'Civil' })
+    const { wrapper } = await mounted({ overrides: { listLlmSuggestions: vi.fn().mockResolvedValue([leftover]) } })
+
+    expect(guide(wrapper).text()).toContain('1 AI label is already waiting. It is kept, and you accept it with the rest.')
+    expect(button(wrapper, 'Work out the cost')).toBeDefined()
+    expect(button(wrapper, 'Accept 1 AI label')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('accepts the AI labels only on the explicit button', async () => {
     const bulkAcceptLlmSuggestions = vi.fn().mockResolvedValue({ accepted: 12, agreement: passed })
     const { adapter, wrapper } = await mounted({

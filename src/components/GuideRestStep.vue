@@ -21,6 +21,8 @@ const props = defineProps<{
   job: LlmJob | null
   /** The AI's labels waiting for the student, from the passed check's model and prompt. */
   aiLabels: number
+  /** One of those is the suggestion for the item on screen, left from Try it. */
+  onScreenWaiting?: boolean
   /** The AI's labels can be checked one by one first. */
   canCheck: boolean
   /** Working out the cost. */
@@ -46,18 +48,22 @@ watch([scope, nextCount], () => emit('change'))
 
 /** The AI's labels are waiting, but the student chose to let it label more first. */
 const wantMore = ref(false)
+/** Items with no AI label yet, beside those waiting to be accepted. */
+const unlabelled = computed(() => (props.pending === null ? 0 : Math.max(props.pending - props.aiLabels, 0)))
+/** The AI has labelled items: waiting labels beyond Try it's suggestion for
+ * the item on screen. That one alone doesn't count, so a student arriving from
+ * Try it still chooses the items and sees the cost first. */
+const labelsReady = computed(() => props.aiLabels - (props.onScreenWaiting ? 1 : 0) > 0)
 const view = computed(() => {
   const status = props.job?.status
   if (status === 'queued' || status === 'running') return 'running'
   if (status === 'failed') return 'failed'
-  if (props.aiLabels > 0 && !wantMore.value) return 'done'
+  if (labelsReady.value && !wantMore.value) return 'done'
   return 'choose'
 })
 watch(view, (value) => {
   if (value === 'running') wantMore.value = false
 })
-/** Items with no AI label yet, beside those waiting to be accepted. */
-const unlabelled = computed(() => (props.pending === null ? 0 : Math.max(props.pending - props.aiLabels, 0)))
 
 // The button pressed is often replaced (Work out the cost by Start, Start by
 // the progress): when focus is lost with it, it moves to the step's next
@@ -79,6 +85,9 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
       <p class="vmlb-guide-text">
         The AI agreed with you often enough to label the rest. Its labels wait for you to accept them: none becomes a
         label before you do.
+      </p>
+      <p v-if="aiLabels > 0" class="vmlb-guide-text vmlb-num">
+        {{ count(aiLabels, 'AI label') }} {{ aiLabels === 1 ? 'is' : 'are' }} already waiting. {{ aiLabels === 1 ? 'It is' : 'They are' }} kept, and you accept {{ aiLabels === 1 ? 'it' : 'them' }} with the rest.
       </p>
       <fieldset class="vmlb-guide-scope" :disabled="estimating || busy">
         <legend>Which items should the AI label?</legend>

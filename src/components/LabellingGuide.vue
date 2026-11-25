@@ -550,6 +550,8 @@ async function saveDescriptions(definitions: Record<string, string>) {
 
 /** The AI's labels a bulk accept would make labels, as the server counts them. */
 const aiLabels = computed(() => aiLabelsToAccept(waiting.value, check.value, props.labels))
+/** Try it's suggestion for the item on screen is among them: not the AI's own labelling. */
+const onScreenWaiting = computed(() => !!props.currentTaskId && aiLabels.value.some((s) => s.task_id === props.currentTaskId))
 const restEstimating = ref(false)
 /** Starting the job or accepting its labels. */
 const restBusy = ref(false)
@@ -830,6 +832,7 @@ watch([stepView, showing], async ([next, state]) => {
             :estimate="llm.estimate.value"
             :job="llm.job.value"
             :ai-labels="aiLabels.length"
+            :on-screen-waiting="onScreenWaiting"
             :can-check="!!adapter.confirmLlmSuggestion"
             :estimating="restEstimating"
             :busy="restBusy"
