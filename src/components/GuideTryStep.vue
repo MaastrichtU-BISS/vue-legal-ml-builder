@@ -174,7 +174,8 @@ watch(
 .vmlb-guide-suggested:focus-visible { outline: 2px solid var(--vmlb-accent); outline-offset: 4px; }
 .vmlb-guide-suggested-label { display: flex; align-items: center; gap: var(--vmlb-space-xs); font-size: var(--vmlb-font-size-base); }
 .vmlb-guide-suggested-label :deep(svg) { color: var(--vmlb-accent); }
-.vmlb-guide-reason { color: var(--vmlb-text-muted); }
+/* Two lines held for the one-sentence reason, as the placeholder holds, so a short reason doesn't shrink the box. */
+.vmlb-guide-reason { min-height: 2lh; color: var(--vmlb-text-muted); }
 .vmlb-guide-try-actions, .vmlb-guide-try-others { display: flex; flex-wrap: wrap; align-items: center; gap: var(--vmlb-space-xs); }
 .vmlb-guide-try-others p { width: 100%; font-size: var(--vmlb-font-size-sm); color: var(--vmlb-text-muted); }
 .vmlb-guide-target { min-height: 2.75rem; }
