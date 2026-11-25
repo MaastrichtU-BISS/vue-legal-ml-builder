@@ -1,8 +1,8 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import AnnotationWorkspace from '../src/components/AnnotationWorkspace.vue'
-import ActiveLearningPanel from '../src/components/ActiveLearningPanel.vue'
-import type { AnnotationStats, MLAdapter } from '../src/types'
+import GuideLabelsStep from '../src/components/GuideLabelsStep.vue'
+import type { ActiveLearningState, AnnotationStats, MLAdapter } from '../src/types'
 import { createTestAdapter } from './testAdapter'
 import { DEFAULT_TEMPLATE, llmAgreement, llmMethods, llmStatus, llmSuggestion } from './fixtures/llm'
 
@@ -34,7 +34,15 @@ async function mounted({ labels = [], counts = {}, stats = { total: 40, annotate
   const adapter = createTestAdapter({
     getNextAnnotationTask: vi.fn().mockResolvedValue({ task: item, stats }),
     getDataset: vi.fn().mockResolvedValue({ id: 'ds-1', labels }),
-    pageAnnotationTasks: vi.fn(async (_projectId: string, filter: { label?: string }) => ({ tasks: [], total: counts[filter.label ?? ''] ?? 0 })),
+    // One label's count, or a page of every labelled item, as the server answers.
+    pageAnnotationTasks: vi.fn(async (_projectId: string, filter: { label?: string; limit?: number; offset?: number }) => {
+      if (filter.label !== undefined) return { tasks: [], total: counts[filter.label] ?? 0 }
+      const all = Object.entries(counts).flatMap(([label, n]) =>
+        Array.from({ length: n }, (_, i) => ({ ...item, id: `${label}-${i}`, status: 'annotated' as const, annotation_label: label })),
+      )
+      const offset = filter.offset ?? 0
+      return { tasks: all.slice(offset, offset + (filter.limit ?? all.length)), total: all.length }
+    }),
     ...llmMethods(),
     ...overrides,
   })
@@ -50,7 +58,10 @@ type Wrapper = Awaited<ReturnType<typeof mounted>>['wrapper']
 
 const guide = (wrapper: Wrapper) => wrapper.find('section[aria-labelledby="vmlb-guide-title"]')
 const currentStep = (wrapper: Wrapper) => wrapper.find('nav li[aria-current="step"]')
-const stepHeading = (wrapper: Wrapper) => wrapper.find('.vmlb-guide-step h3')
+/** The current step's heading: the guide's only h3 before the step's own content. */
+const stepHeading = (wrapper: Wrapper) => guide(wrapper).find('h3')
+const alerts = (wrapper: Wrapper) => wrapper.findAll('[role="alert"]').map((a) => a.text())
+const labelRows = (wrapper: Wrapper) => guide(wrapper).findAll('form li')
 const button = (wrapper: Wrapper, text: string) => wrapper.findAll('button').find((b) => b.text() === text)
 
 async function click(wrapper: Wrapper, text: string) {
@@ -167,7 +178,7 @@ describe('the guide: which step it is on', () => {
 
     expect(currentStep(wrapper).text()).toContain('Ready to train')
     expect(stepHeading(wrapper).text()).toBe('Your dataset is ready to train')
-    expect(wrapper.find('.vmlb-guide-time').exists()).toBe(false)
+    expect(guide(wrapper).text()).not.toMatch(/About \d+ minutes|A few minutes/)
     wrapper.unmount()
   })
 })
@@ -256,7 +267,7 @@ describe('the guide: loading', () => {
     const { wrapper } = await mounted({ overrides: { getLlmStatus: vi.fn(() => new Promise<never>(() => {})) } })
 
     expect(guide(wrapper).attributes('aria-busy')).toBe('true')
-    expect(guide(wrapper).find('.vmlb-guide-skeleton').text()).toContain('Loading your labelling progress')
+    expect(guide(wrapper).find('[role="status"]').text()).toContain('Loading your labelling progress')
     expect(wrapper.find('nav').exists()).toBe(false)
     wrapper.unmount()
   })
@@ -309,7 +320,7 @@ describe('the guide: step 1, Your labels', () => {
     await fillLabels(wrapper, [['Contract', 'Agreements.'], ['Tort', 'Wrongs.']])
 
     await click(wrapper, 'Save labels')
-    expect(wrapper.find('.vmlb-guide-server-error').text()).toContain("'Civil' is already used on an item")
+    expect(alerts(wrapper).some((text) => text.includes("'Civil' is already used on an item"))).toBe(true)
     expect(nameInputs(wrapper).map((input) => (input.element as HTMLInputElement).value)).toEqual(['Contract', 'Tort'])
     expect(descriptionInputs(wrapper).map((input) => (input.element as HTMLInputElement).value)).toEqual(['Agreements.', 'Wrongs.'])
     expect(button(wrapper, 'Save labels')).toBeDefined()
@@ -319,11 +330,10 @@ describe('the guide: step 1, Your labels', () => {
   it('locks a label already in use as read-only', async () => {
     const { adapter, wrapper } = await mounted({ labels: ['Civil'], counts: { Civil: 3 } })
 
-    const locked = wrapper.find('.vmlb-guide-locked')
-    expect(locked.text()).toContain('Civil')
-    expect(locked.text()).toContain('In use')
+    const lockedRow = labelRows(wrapper)[0]
+    expect(lockedRow.text()).toContain('Civil')
+    expect(lockedRow.text()).toContain('In use')
     expect(nameInputs(wrapper)).toHaveLength(1)
-    const lockedRow = wrapper.findAll('.vmlb-guide-label-row')[0]
     expect(lockedRow.findAll('button').filter((b) => b.text() === 'Remove')).toHaveLength(0)
 
     await fillLabels(wrapper, [['Civil', 'Private rights.'], ['Criminal', 'Offences.']])
@@ -399,10 +409,9 @@ describe('the guide: accessibility', () => {
     expect(steps[0].text()).toContain('Done:')
     expect(steps[1].text()).toContain('Done:')
     expect(steps[2].text()).not.toContain('Done:')
-    expect(steps[0].find('.vmlb-guide-sr').text()).toBe('Done:')
     // Done steps are marked by an icon, the others by number: never colour alone.
     expect(steps[3].text()).toContain('4')
-    expect(wrapper.find('.vmlb-guide-compact').text()).toContain('Step 3 of 6 · Show it how')
+    expect(guide(wrapper).text()).toContain('Step 3 of 6 · Show it how')
     wrapper.unmount()
   })
 
@@ -421,27 +430,249 @@ describe('the guide: accessibility', () => {
 })
 
 describe('the guide is the one next action', () => {
-  const alState = { getActiveLearningState: vi.fn().mockResolvedValue({ active: false }) }
+  const AL_SETTINGS = {
+    strategies: ['prediction_entropy', 'random'],
+    default_strategy: 'prediction_entropy',
+    default_batch_size: 20,
+    min_per_class: 5,
+    default_holdout_percent: 20,
+    max_holdout_percent: 50,
+    seed_sources: { random: true, llm: false },
+  }
+  // Fresh mocks per test: afterEach restores every mock.
+  const alState = () => ({
+    getActiveLearningSettings: vi.fn().mockResolvedValue(AL_SETTINGS),
+    getActiveLearningState: vi.fn().mockResolvedValue({ active: false }),
+  })
+  const LOOP_HEADING = 'Let the Model choose what to label next'
 
   it('leaves out "Let the Model choose what to label next" while the guide shows', async () => {
-    const { wrapper } = await mounted({ overrides: alState })
+    const { wrapper } = await mounted({ overrides: alState() })
     expect(guide(wrapper).exists()).toBe(true)
-    expect(wrapper.findComponent(ActiveLearningPanel).exists()).toBe(false)
+    expect(wrapper.text()).not.toContain(LOOP_HEADING)
     wrapper.unmount()
   })
 
   it('keeps it in the hidden-guide view', async () => {
-    const { wrapper } = await mounted({ overrides: alState, props: { guide: 'hidden' } })
+    const { wrapper } = await mounted({ overrides: alState(), props: { guide: 'hidden' } })
     expect(guide(wrapper).exists()).toBe(false)
-    expect(wrapper.findComponent(ActiveLearningPanel).exists()).toBe(true)
+    expect(wrapper.findAll('h2').some((h) => h.text() === LOOP_HEADING)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('is not offered by a host without LLM help, which keeps the Model-led panel', async () => {
+    const { wrapper } = await mounted({ overrides: { ...alState(), getLlmStatus: undefined } })
+    expect(guide(wrapper).exists()).toBe(false)
+    expect(button(wrapper, 'Show guide')).toBeUndefined()
+    expect(wrapper.findAll('h2').some((h) => h.text() === LOOP_HEADING)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('opens on today’s panels for a Dataset whose Model-led loop already runs, with nothing stored', async () => {
+    const running = {
+      active: true, strategy: 'random', seed_source: 'random', batch_size: 20, min_per_class: 5, model_id: null,
+      round: { number: 0, status: 'labelling', strategy: 'random', model_id: null, job_id: null, labels_used: null, metrics: null, error: null, created_at: '', completed_at: null },
+      label_counts: { Civil: 1 }, typed_labels: false,
+      retrain: { new_labels: 0, allowed: false, suggested: false, classes_short: {}, needs_second_label: false, labels_total: 1, label_cap: 100, classes_left_out: [], classes_unseen: [], classes_to_train: 1, labels_needed: 1 },
+      holdout: { percent: 20, size: 10, labelled: 0, label_counts: {}, needed: 10, verification: null },
+    } as unknown as ActiveLearningState
+    const overrides = { ...alState(), getActiveLearningState: vi.fn().mockResolvedValue(running) }
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides })
+    expect(guide(wrapper).exists()).toBe(false)
+    expect(wrapper.find('section[aria-label="Active learning"]').exists()).toBe(true)
+    expect(button(wrapper, 'Show guide')).toBeDefined()
+    expect(localStorage.getItem('vmlb-guide-hidden:ds-1')).toBeNull()
     wrapper.unmount()
   })
 
   it('labels every field with visible text, not only a placeholder', async () => {
     const { wrapper } = await mounted()
-    const labels = wrapper.findAll('label.vmlb-guide-field-label').map((l) => l.text())
+    const labels = guide(wrapper).findAll('form label').map((l) => l.text())
     expect(labels.filter((t) => t.startsWith('Label name')).length).toBeGreaterThanOrEqual(2)
     expect(labels.filter((t) => t.startsWith('When to use it')).length).toBeGreaterThanOrEqual(2)
+    wrapper.unmount()
+  })
+})
+
+describe('the guide: what is left', () => {
+  it('is not Ready to train when the queue is empty but rows still need a label', async () => {
+    const stats = { total: 0, annotated: 0, percentage: 0 }
+    const { wrapper } = await mounted({
+      labels: ['Civil', 'Criminal'],
+      stats,
+      overrides: { getNextAnnotationTask: vi.fn().mockResolvedValue({ task: null, stats }) },
+      props: { unlabelledRows: 12 },
+    })
+
+    expect(currentStep(wrapper).text()).not.toContain('Ready to train')
+    expect(currentStep(wrapper).text()).toContain('Show it how')
+    wrapper.unmount()
+  })
+
+  it('marks steps passed over because nothing was left as skipped, not done', async () => {
+    const none = llmStatus({ mode: 'none', destination: null, model: null, shared_key_allowed: false, remaining_tokens: null, acknowledged: false })
+    const { wrapper } = await mounted({
+      labels: ['Civil', 'Criminal'],
+      counts: { Civil: 20, Criminal: 20 },
+      stats: { total: 40, annotated: 40, percentage: 100 },
+      overrides: { getLlmStatus: vi.fn().mockResolvedValue(none) },
+    })
+
+    const steps = wrapper.findAll('nav ol > li')
+    expect(currentStep(wrapper).text()).toContain('Ready to train')
+    expect(steps[0].text()).toContain('Done:')
+    expect(steps[1].text()).toContain('Skipped:')
+    expect(steps[1].text()).not.toContain('Done:')
+    expect(steps[1].text()).toContain('2')
+    // Enough shown: done, though the AI was never connected.
+    expect(steps[2].text()).toContain('Done:')
+    expect(steps[3].text()).toContain('Skipped:')
+    expect(steps[4].text()).toContain('Skipped:')
+    wrapper.unmount()
+  })
+})
+
+describe('the guide: labels already in use on a Dataset that names none', () => {
+  it('locks the labels found on items as In use, and lets the student add new ones', async () => {
+    const { adapter, wrapper } = await mounted({ counts: { Civil: 2, Criminal: 1 } })
+
+    const rows = labelRows(wrapper)
+    expect(rows.map((row) => row.text().includes('In use'))).toEqual([true, true])
+    expect(rows[0].text()).toContain('Civil')
+    expect(rows[1].text()).toContain('Criminal')
+    expect(nameInputs(wrapper)).toHaveLength(0)
+    expect(adapter.pageAnnotationTasks).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'annotated', datasetId: 'ds-1', includeHoldout: true }))
+
+    await click(wrapper, 'Add a label')
+    await nameInputs(wrapper)[0].setValue('Tort')
+    const sentences = descriptionInputs(wrapper)
+    await sentences[0].setValue('Private rights.')
+    await sentences[1].setValue('Offences.')
+    await sentences[2].setValue('Wrongs.')
+    await click(wrapper, 'Save labels')
+    expect(adapter.setDatasetLabels).toHaveBeenCalledWith('ds-1', ['Civil', 'Criminal', 'Tort'])
+    wrapper.unmount()
+  })
+
+  it('keeps the form behind the skeleton until the labels in use are known', async () => {
+    const pageAnnotationTasks = vi.fn(() => new Promise<never>(() => {}))
+    const { wrapper } = await mounted({ overrides: { pageAnnotationTasks } })
+
+    expect(guide(wrapper).find('[role="status"]').text()).toContain('Loading your labelling progress')
+    expect(guide(wrapper).find('form').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('adds labels in use that arrive late, locked, without touching what was typed', async () => {
+    const adapter = createTestAdapter()
+    const wrapper = mount(GuideLabelsStep, {
+      props: { adapter, datasetId: 'ds-1', labels: [], inUse: [], descriptions: {} },
+      attachTo: document.body,
+    })
+    const names = () => wrapper.findAll('input[placeholder="Label name"]')
+    const sentences = () => wrapper.findAll('input[placeholder="One sentence saying when to use it"]')
+    await names()[0].setValue('Tort')
+    await sentences()[0].setValue('Wrongs.')
+
+    await wrapper.setProps({ inUse: ['Civil'], descriptions: { Civil: 'Private rights.', Tort: 'Something else.' } })
+    const rows = wrapper.findAll('li')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].text()).toContain('Civil')
+    expect(rows[0].text()).toContain('In use')
+    expect((sentences()[0].element as HTMLInputElement).value).toBe('Private rights.')
+    expect(names().map((input) => (input.element as HTMLInputElement).value)).toEqual(['Tort'])
+    expect((sentences()[1].element as HTMLInputElement).value).toBe('Wrongs.')
+    wrapper.unmount()
+  })
+})
+
+describe('the guide: saving the sentences', () => {
+  it('says when the labels saved but the sentences did not, and tries again', async () => {
+    const updateLlmPrompt = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('The prompt check failed.'))
+      .mockImplementation(async (_id: string, edit: { template: string; definitions: Record<string, string> }) => ({ version: 1, ...edit }))
+    const { wrapper } = await mounted({ overrides: { updateLlmPrompt } })
+    await fillLabels(wrapper, [['Civil', 'Private rights.'], ['Criminal', 'Offences.']])
+    await click(wrapper, 'Save labels')
+
+    const message = "Your labels are saved, but their sentences aren't saved yet: The prompt check failed."
+    expect(alerts(wrapper)).toContain(message)
+    await click(wrapper, 'Try again')
+    expect(updateLlmPrompt).toHaveBeenCalledTimes(2)
+    expect(updateLlmPrompt).toHaveBeenLastCalledWith('ds-1', { template: DEFAULT_TEMPLATE, definitions: { Civil: 'Private rights.', Criminal: 'Offences.' } })
+    expect(alerts(wrapper)).not.toContain(message)
+    expect(localStorage.getItem('vmlb-guide-descriptions:ds-1')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('fills only empty definitions from sentences waiting since an earlier visit', async () => {
+    localStorage.setItem('vmlb-guide-descriptions:ds-1', JSON.stringify({ Civil: 'Old.', Criminal: 'Offences.' }))
+    const getLlmPrompt = vi.fn().mockResolvedValue({ version: 3, template: DEFAULT_TEMPLATE, definitions: { Civil: 'Newer.' } })
+    const updateLlmPrompt = vi.fn(async (_id: string, edit: { template: string; definitions: Record<string, string> }) => ({ version: 4, ...edit }))
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmPrompt, updateLlmPrompt } })
+
+    expect(updateLlmPrompt).toHaveBeenCalledWith('ds-1', { template: DEFAULT_TEMPLATE, definitions: { Civil: 'Newer.', Criminal: 'Offences.' } })
+    expect(localStorage.getItem('vmlb-guide-descriptions:ds-1')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('drops waiting sentences once the prompt already defines those labels', async () => {
+    localStorage.setItem('vmlb-guide-descriptions:ds-1', JSON.stringify({ Civil: 'Old.' }))
+    const getLlmPrompt = vi.fn().mockResolvedValue({ version: 3, template: DEFAULT_TEMPLATE, definitions: { Civil: 'Newer.' } })
+    const { adapter, wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmPrompt } })
+
+    expect(adapter.updateLlmPrompt).not.toHaveBeenCalled()
+    expect(localStorage.getItem('vmlb-guide-descriptions:ds-1')).toBeNull()
+    expect(wrapper.find('dl[aria-label="What your labels mean"]').text()).toContain('Newer.')
+    wrapper.unmount()
+  })
+
+  it('runs a save asked for while the prompt still loads, once it has loaded', async () => {
+    let release!: (value: unknown) => void
+    const getLlmPrompt = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+      .mockResolvedValue({ version: 0, template: DEFAULT_TEMPLATE, definitions: {} })
+    const updateLlmPrompt = vi.fn(async (_id: string, edit: { template: string; definitions: Record<string, string> }) => ({ version: 1, ...edit }))
+    const { wrapper } = await mounted({ overrides: { getLlmPrompt, updateLlmPrompt } })
+    await fillLabels(wrapper, [['Civil', 'Private rights.'], ['Criminal', 'Offences.']])
+    await click(wrapper, 'Save labels')
+    expect(updateLlmPrompt).not.toHaveBeenCalled()
+
+    release({ version: 0, template: DEFAULT_TEMPLATE, definitions: {} })
+    await flushPromises()
+    expect(updateLlmPrompt).toHaveBeenCalledWith('ds-1', { template: DEFAULT_TEMPLATE, definitions: { Civil: 'Private rights.', Criminal: 'Offences.' } })
+    wrapper.unmount()
+  })
+})
+
+describe('the guide: rows and Datasets', () => {
+  it('moves focus to the next row after Remove, or to Add a label when none is left', async () => {
+    const { wrapper } = await mounted()
+    await click(wrapper, 'Add a label')
+    const names = nameInputs(wrapper)
+    await names[0].setValue('A')
+    await names[1].setValue('B')
+    await names[2].setValue('C')
+
+    await wrapper.findAll('button').filter((b) => b.text() === 'Remove')[0].trigger('click')
+    await flushPromises()
+    expect(nameInputs(wrapper).map((input) => (input.element as HTMLInputElement).value)).toEqual(['B', 'C'])
+    expect(document.activeElement).toBe(nameInputs(wrapper)[0].element)
+
+    await wrapper.findAll('button').filter((b) => b.text() === 'Remove')[1].trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(button(wrapper, 'Add a label')!.element)
+    wrapper.unmount()
+  })
+
+  it('starts again for another Dataset', async () => {
+    const { adapter, wrapper } = await mounted({ labels: ['Civil', 'Criminal'] })
+    await wrapper.setProps({ datasetId: 'ds-2' })
+    await flushPromises()
+    expect(adapter.getLlmStatus).toHaveBeenCalledWith('ds-2')
+    expect(guide(wrapper).exists()).toBe(true)
     wrapper.unmount()
   })
 })

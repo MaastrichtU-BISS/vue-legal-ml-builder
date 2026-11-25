@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { hasLabelErrors, validateLabels, type LabelDraft, type LabelErrors } from '../annotation/guide'
 import type { Dataset, Id, MLAdapter } from '../types'
 import Icon from './shared/Icon.vue'
@@ -21,14 +21,51 @@ const emit = defineEmits<{
   (e: 'saved', saved: { dataset: Dataset; labels: string[]; descriptions: Record<string, string> }): void
 }>()
 
-function initialRows(): LabelDraft[] {
+/** A row with a key that stays with it when rows above it are removed. */
+type Row = LabelDraft & { key: number }
+let nextKey = 0
+const blank = (): Row => ({ key: nextKey++, name: '', description: '', locked: false })
+const isBlank = (row: Row) => !row.locked && !row.name.trim() && !row.description.trim()
+
+function initialRows(): Row[] {
   const names = [...new Set([...props.inUse, ...props.labels])]
-  const rows = names.map((name) => ({ name, description: props.descriptions[name] ?? '', locked: props.inUse.includes(name) }))
-  while (rows.length < 2) rows.push({ name: '', description: '', locked: false })
+  const rows = names.map((name) => ({ key: nextKey++, name, description: props.descriptions[name] ?? '', locked: props.inUse.includes(name) }))
+  while (rows.length < 2) rows.push(blank())
   return rows
 }
 
-const rows = ref<LabelDraft[]>(initialRows())
+const rows = ref<Row[]>(initialRows())
+
+/** Labels found in use, or named, after the form showed (they can arrive late)
+ * join it, in-use ones locked; known sentences fill empty fields. What the
+ * student typed is never overwritten. */
+function mergeKnown() {
+  const next = [...rows.value]
+  const find = (name: string) => next.find((row) => row.name.trim() === name)
+  const insert = (row: Row) => {
+    // Take the place of an untouched empty row, so the form doesn't grow blanks.
+    const empty = next.findIndex(isBlank)
+    if (empty >= 0) next.splice(empty, 1)
+    const firstUnlocked = next.findIndex((r) => !r.locked)
+    next.splice(row.locked ? (firstUnlocked < 0 ? next.length : firstUnlocked) : next.length, 0, row)
+  }
+  for (const name of props.inUse) {
+    const row = find(name)
+    if (row) row.locked = true
+    else insert({ key: nextKey++, name, description: props.descriptions[name] ?? '', locked: true })
+  }
+  for (const name of props.labels) {
+    if (!find(name)) insert({ key: nextKey++, name, description: props.descriptions[name] ?? '', locked: false })
+  }
+  for (const row of next) {
+    const known = props.descriptions[row.name.trim()]
+    if (!row.description.trim() && known) row.description = known
+  }
+  while (next.length < 2) next.push(blank())
+  rows.value = next
+}
+watch(() => [props.inUse.join('\u0000'), props.labels.join('\u0000'), JSON.stringify(props.descriptions)], mergeKnown)
+
 const attempted = ref(false)
 const saving = ref(false)
 const serverError = ref<string | null>(null)
@@ -36,18 +73,26 @@ const NO_ERRORS: LabelErrors = { list: null, names: {}, descriptions: {} }
 /** Field errors show once Save was pressed, then follow the typing. */
 const shownErrors = computed(() => (attempted.value ? validateLabels(rows.value) : NO_ERRORS))
 const root = ref<HTMLElement | null>(null)
+const addButton = ref<HTMLButtonElement | null>(null)
 
-const nameId = (i: number) => `vmlb-guide-label-${props.datasetId}-${i}`
-const descriptionId = (i: number) => `vmlb-guide-desc-${props.datasetId}-${i}`
+const nameId = (row: Row) => `vmlb-guide-label-${props.datasetId}-${row.key}`
+const descriptionId = (row: Row) => `vmlb-guide-desc-${props.datasetId}-${row.key}`
 
 async function addRow() {
-  rows.value = [...rows.value, { name: '', description: '', locked: false }]
+  const row = blank()
+  rows.value = [...rows.value, row]
   await nextTick()
-  document.getElementById(nameId(rows.value.length - 1))?.focus()
+  document.getElementById(nameId(row))?.focus()
 }
 
-function removeRow(index: number) {
+/** Focus moves to the next row's name, or to "Add a label" when none is left. */
+async function removeRow(index: number) {
   rows.value = rows.value.filter((_, i) => i !== index)
+  await nextTick()
+  const next = rows.value.slice(index).find((row) => !row.locked)
+  const field = next && document.getElementById(nameId(next))
+  if (field) field.focus()
+  else addButton.value?.focus()
 }
 
 async function save() {
@@ -81,10 +126,10 @@ async function save() {
     </p>
 
     <ul class="vmlb-guide-label-list">
-      <li v-for="(row, i) in rows" :key="i" class="vmlb-guide-label-row">
+      <li v-for="(row, i) in rows" :key="row.key" class="vmlb-guide-label-row">
         <div class="vmlb-guide-label-name">
           <template v-if="row.locked">
-            <span :id="nameId(i)" class="vmlb-guide-locked">
+            <span :id="nameId(row)" class="vmlb-guide-locked">
               <Icon name="lock" />
               <span class="vmlb-guide-locked-name">{{ row.name }}</span>
               <span class="vmlb-guide-in-use">In use</span>
@@ -92,33 +137,33 @@ async function save() {
           </template>
           <template v-else>
             <!-- Visible labels: a placeholder alone disappears once the student types. -->
-            <label class="vmlb-guide-field-label" :for="nameId(i)">Label name<span class="vmlb-guide-sr"> {{ i + 1 }}</span></label>
+            <label class="vmlb-guide-field-label" :for="nameId(row)">Label name<span class="vmlb-guide-sr"> {{ i + 1 }}</span></label>
             <input
-              :id="nameId(i)"
+              :id="nameId(row)"
               v-model="row.name"
               class="vmlb-input vmlb-guide-input"
               type="text"
               placeholder="Label name"
               maxlength="100"
               :aria-invalid="shownErrors.names[i] ? 'true' : undefined"
-              :aria-describedby="shownErrors.names[i] ? `${nameId(i)}-error` : undefined"
+              :aria-describedby="shownErrors.names[i] ? `${nameId(row)}-error` : undefined"
             />
-            <p v-if="shownErrors.names[i]" :id="`${nameId(i)}-error`" class="vmlb-guide-field-error">{{ shownErrors.names[i] }}</p>
+            <p v-if="shownErrors.names[i]" :id="`${nameId(row)}-error`" class="vmlb-guide-field-error">{{ shownErrors.names[i] }}</p>
           </template>
         </div>
         <div class="vmlb-guide-label-desc">
-          <label class="vmlb-guide-field-label" :for="descriptionId(i)">When to use it<span class="vmlb-guide-sr"> ({{ row.name.trim() || `label ${i + 1}` }})</span></label>
+          <label class="vmlb-guide-field-label" :for="descriptionId(row)">When to use it<span class="vmlb-guide-sr"> ({{ row.name.trim() || `label ${i + 1}` }})</span></label>
           <input
-            :id="descriptionId(i)"
+            :id="descriptionId(row)"
             v-model="row.description"
             class="vmlb-input vmlb-guide-input"
             type="text"
             placeholder="One sentence saying when to use it"
             maxlength="500"
             :aria-invalid="shownErrors.descriptions[i] ? 'true' : undefined"
-            :aria-describedby="shownErrors.descriptions[i] ? `${descriptionId(i)}-error` : undefined"
+            :aria-describedby="shownErrors.descriptions[i] ? `${descriptionId(row)}-error` : undefined"
           />
-          <p v-if="shownErrors.descriptions[i]" :id="`${descriptionId(i)}-error`" class="vmlb-guide-field-error">{{ shownErrors.descriptions[i] }}</p>
+          <p v-if="shownErrors.descriptions[i]" :id="`${descriptionId(row)}-error`" class="vmlb-guide-field-error">{{ shownErrors.descriptions[i] }}</p>
         </div>
         <button
           v-if="!row.locked && rows.length > 1"
@@ -134,7 +179,7 @@ async function save() {
     <p v-if="shownErrors.list" class="vmlb-guide-field-error" role="alert">{{ shownErrors.list }}</p>
 
     <div class="vmlb-guide-actions">
-      <button type="button" class="vmlb-btn-secondary vmlb-guide-target" :disabled="saving" @click="addRow">
+      <button ref="addButton" type="button" class="vmlb-btn-secondary vmlb-guide-target" :disabled="saving" @click="addRow">
         <Icon name="plus" /> Add a label
       </button>
       <button type="submit" class="vmlb-btn-primary vmlb-guide-target" :disabled="saving">

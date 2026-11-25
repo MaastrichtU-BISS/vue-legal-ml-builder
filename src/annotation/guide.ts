@@ -78,6 +78,23 @@ export function guideStep(p: GuideProgress): GuideStepKey {
   return 'rest'
 }
 
+/** Whether each step's own condition is met, so a step passed only because
+ * nothing is left is not called done. "Do the rest" counts as done when the
+ * agreement check passed and nothing is left; "Ready to train" when nothing is
+ * left. */
+export function stepsMet(p: GuideProgress): Record<GuideStepKey, boolean> {
+  const shortLabel = p.confirmedPerLabel !== null && p.labels.some((label) => (p.confirmedPerLabel![label] ?? 0) < SHOW_PER_LABEL)
+  const passed = agreementPassed(p.agreement)
+  return {
+    labels: p.labels.length >= 2,
+    connect: p.hasAccess && p.acknowledged,
+    show: !shortLabel && p.confirmedTotal >= SHOW_TOTAL,
+    try: passed,
+    rest: passed && p.pending === 0,
+    ready: p.pending === 0,
+  }
+}
+
 /** Labels with fewer than READY_PER_LABEL confirmed examples: what the Ready
  * step warns about. Empty when the server cannot count per label. */
 export function labelsShortOfReady(p: Pick<GuideProgress, 'labels' | 'confirmedPerLabel'>): string[] {

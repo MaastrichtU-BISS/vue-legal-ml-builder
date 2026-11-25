@@ -151,11 +151,12 @@ watch(
   { immediate: true },
 )
 
-/** With nothing stored, a Dataset that already has LLM suggestions opens on
- * today's panel; one without keeps the guide, remembered from now on. */
-function onGuideLoaded({ hasSuggestions }: { hasSuggestions: boolean }) {
+/** With nothing stored, a Dataset that already has LLM suggestions, or a
+ * Model-led loop running, opens on today's panels so their controls stay; one
+ * without keeps the guide, remembered from now on. */
+function onGuideLoaded({ hasSuggestions, loopRunning }: { hasSuggestions: boolean; loopRunning: boolean }) {
   if (guidePreference.value !== null || !props.datasetId) return
-  if (hasSuggestions) {
+  if (hasSuggestions || loopRunning) {
     guideOpen.value = false
     return
   }
@@ -347,6 +348,7 @@ async function onLabelHoldout() {
 
     <LabellingGuide
       v-if="showGuide && adapter && datasetId"
+      :key="datasetId"
       :adapter="adapter"
       :project-id="projectId"
       :dataset-id="datasetId"

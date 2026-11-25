@@ -173,8 +173,10 @@ export function createMockAdapter(): MLAdapter {
       }
       const names = labels.map((label) => label.trim())
       if (names.some((name) => !name)) throw new Error("Label names can't be empty.")
-      if (new Set(names).size !== names.length) throw new Error('Two labels have the same name.')
+      // Names are compared casefolded, as the server does.
+      if (new Set(names.map((name) => name.toLowerCase())).size !== names.length) throw new Error('Two labels have the same name.')
       if (names.length < 2) throw new Error('Use at least two labels.')
+      if (names.length > 50) throw new Error('Use at most 50 labels.')
       const used = new Set(
         tasksOf(id).filter((t) => t.status === 'annotated' && t.annotation_label).map((t) => String(t.annotation_label)),
       )

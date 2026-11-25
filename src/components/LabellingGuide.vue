@@ -5,11 +5,13 @@ import {
   guideStep,
   readPendingDescriptions,
   stepIndex,
+  stepsMet,
   writePendingDescriptions,
+  type GuideProgress,
   type GuideStepKey,
 } from '../annotation/guide'
 import { useLlmAssist } from '../composables/useLlmAssist'
-import type { AnnotationStats, Dataset, Id, LlmAgreement, LlmStatus, LlmSuggestion, MLAdapter } from '../types'
+import type { AnnotationStats, AnnotationTask, Dataset, Id, LlmAgreement, LlmStatus, LlmSuggestion, MLAdapter } from '../types'
 import GuideLabelsStep from './GuideLabelsStep.vue'
 import LlmAssistPanel from './LlmAssistPanel.vue'
 import Icon from './shared/Icon.vue'
@@ -35,8 +37,9 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   (e: 'hide'): void
-  /** Loaded once: whether the Dataset already has LLM suggestions. */
-  (e: 'loaded', loaded: { hasSuggestions: boolean }): void
+  /** Loaded once: whether the Dataset already has LLM suggestions, or a
+   * Model-led loop running. */
+  (e: 'loaded', loaded: { hasSuggestions: boolean; loopRunning: boolean }): void
   (e: 'labels-saved', saved: { dataset: Dataset; labels: string[] }): void
   /** The sentence for each label, for the labelling sidebar. */
   (e: 'descriptions', descriptions: Record<string, string>): void
@@ -48,10 +51,16 @@ const llm = useLlmAssist(props.adapter, inject<number>('vmlb:pollInterval', 3000
 const { status, agreement, prompt, promptError, hasAccess, ready } = llm
 
 const loadState = ref<'loading' | 'ready' | 'error'>('loading')
-/** Confirmed labels per label; null when the server cannot count them. */
+/** Confirmed labels per label; null when the server cannot count them. With
+ * fewer than two named labels, the labels found on items and their counts. */
 const perLabel = ref<Record<string, number> | null>(null)
 /** Descriptions saved with the labels but not yet in a prompt version. */
 const pendingDescriptions = ref<Record<string, string> | null>(readPendingDescriptions(props.datasetId))
+/** Typed in this visit, so newer than the prompt's definitions. Descriptions
+ * waiting from an earlier visit only fill definitions that are still empty. */
+const pendingFresh = ref(false)
+/** Why the descriptions saved with the labels aren't in the prompt yet. */
+const sentencesError = ref<string | null>(null)
 const heading = ref<HTMLElement | null>(null)
 let announcedLoad = false
 
@@ -62,32 +71,67 @@ const inUseLabels = computed(() => {
 const confirmedTotal = computed(() =>
   perLabel.value ? Object.values(perLabel.value).reduce((sum, n) => sum + n, 0) : props.stats?.annotated ?? 0,
 )
+/** Items still waiting. An empty queue is not finished work (the workspace
+ * calls it unavailable), so it says nothing about what is left. */
 const pending = computed(() =>
-  props.stats ? Math.max(props.stats.total - props.stats.annotated - (props.stats.holdout_remaining ?? 0), 0) : null,
+  props.stats && props.stats.total > 0
+    ? Math.max(props.stats.total - props.stats.annotated - (props.stats.holdout_remaining ?? 0), 0)
+    : null,
 )
-const descriptions = computed<Record<string, string>>(() => ({
-  ...(prompt.value?.definitions ?? {}),
-  ...(pendingDescriptions.value ?? {}),
-}))
+const descriptions = computed<Record<string, string>>(() => {
+  const defined = prompt.value?.definitions ?? {}
+  const waiting = Object.entries(pendingDescriptions.value ?? {}).filter(
+    ([label, text]) => text.trim() && (pendingFresh.value || !defined[label]?.trim()),
+  )
+  return { ...defined, ...Object.fromEntries(waiting) }
+})
 
-const step = computed<GuideStepKey>(() =>
-  guideStep({
-    labels: props.labels,
-    hasAccess: hasAccess.value,
-    acknowledged: !!status.value?.acknowledged,
-    confirmedPerLabel: perLabel.value,
-    confirmedTotal: confirmedTotal.value,
-    pending: pending.value,
-    agreement: agreement.value,
-  }),
-)
+const progress = computed<GuideProgress>(() => ({
+  labels: props.labels,
+  hasAccess: hasAccess.value,
+  acknowledged: !!status.value?.acknowledged,
+  confirmedPerLabel: props.labels.length >= 2 ? perLabel.value : null,
+  confirmedTotal: confirmedTotal.value,
+  pending: pending.value,
+  agreement: agreement.value,
+}))
+const step = computed<GuideStepKey>(() => guideStep(progress.value))
+const met = computed(() => stepsMet(progress.value))
 const current = computed(() => stepIndex(step.value))
 const currentStep = computed(() => GUIDE_STEPS[current.value])
 const showing = computed(() => (loadState.value === 'ready' && (props.stats || !props.statsLoading) ? 'ready' : loadState.value === 'error' ? 'error' : 'loading'))
 
+const PAGE = 500
+
+/** The labels on the Dataset's labelled items, with how many each: what step 1
+ * locks when the Dataset names fewer than two labels (typed or file labels).
+ * Pages through the labelled items, the one list that covers every source;
+ * without it, the Model-led loop's counts while it runs. */
+async function findUsedLabels(): Promise<Record<string, number> | null> {
+  if (props.adapter.pageAnnotationTasks) {
+    const counts: Record<string, number> = {}
+    for (let offset = 0; ; offset += PAGE) {
+      const page: { tasks: AnnotationTask[]; total: number } = await props.adapter.pageAnnotationTasks(props.projectId, {
+        status: 'annotated', datasetId: props.datasetId, includeHoldout: true, limit: PAGE, offset,
+      })
+      for (const task of page.tasks) {
+        const label = task.annotation_label?.trim()
+        if (label) counts[label] = (counts[label] ?? 0) + 1
+      }
+      if (!page.tasks.length || offset + page.tasks.length >= page.total) break
+    }
+    return counts
+  }
+  if (props.adapter.getActiveLearningState) {
+    const state = await props.adapter.getActiveLearningState(props.datasetId)
+    return state.active ? state.label_counts : null
+  }
+  return null
+}
+
 /** Confirmed labels per label, one count per label from the server. */
 async function loadCounts(): Promise<Record<string, number> | null> {
-  if (!props.labels.length) return {}
+  if (props.labels.length < 2) return findUsedLabels()
   if (props.adapter.pageAnnotationTasks) {
     const totals = await Promise.all(
       props.labels.map((label) =>
@@ -104,10 +148,21 @@ async function loadCounts(): Promise<Record<string, number> | null> {
   return null
 }
 
+/** Whether the Model-led loop already runs on this Dataset. */
+async function loopRunning(): Promise<boolean> {
+  if (!props.adapter.getActiveLearningState) return false
+  try {
+    return (await props.adapter.getActiveLearningState(props.datasetId)).active
+  } catch {
+    return false
+  }
+}
+
 async function load() {
   loadState.value = 'loading'
+  let running = false
   try {
-    await llm.refresh(props.datasetId)
+    ;[running] = await Promise.all([announcedLoad ? false : loopRunning(), llm.refresh(props.datasetId)])
     if (llm.error.value) throw new Error(llm.error.value)
     perLabel.value = await loadCounts()
     loadState.value = 'ready'
@@ -117,7 +172,10 @@ async function load() {
   }
   if (!announcedLoad) {
     announcedLoad = true
-    emit('loaded', { hasSuggestions: (agreement.value?.checked ?? 0) > 0 || llm.suggestions.value.length > 0 })
+    emit('loaded', {
+      hasSuggestions: (agreement.value?.checked ?? 0) > 0 || llm.suggestions.value.length > 0,
+      loopRunning: running,
+    })
   }
   await syncDescriptions()
 }
@@ -131,35 +189,70 @@ async function refreshCounts() {
   }
 }
 
+function clearPending() {
+  pendingDescriptions.value = null
+  pendingFresh.value = false
+  sentencesError.value = null
+  writePendingDescriptions(props.datasetId, null)
+}
+
 let syncing = false
+/** A sync asked for while one runs; it runs again once that one ends. */
+let rerun = false
 /** Loads the prompt and, when descriptions are still waiting, saves them as a
  * new prompt version with the template unchanged. Without LLM access the
  * prompt can't be read or saved, so they wait (in browser storage too) until
  * the next time the prompt loads. */
-async function syncDescriptions() {
+async function syncDescriptions(): Promise<void> {
   emit('descriptions', descriptions.value)
-  if (syncing || !hasAccess.value || !props.adapter.getLlmPrompt) return
+  if (!hasAccess.value || !props.adapter.getLlmPrompt) return
+  if (syncing) {
+    rerun = true
+    return
+  }
+  // The guide is keyed by Dataset, but a reply must still match the one asked about.
+  const datasetId = props.datasetId
   syncing = true
   try {
-    await llm.loadPrompt(props.datasetId)
-    const loaded = prompt.value
+    await llm.loadPrompt(datasetId)
+    if (datasetId !== props.datasetId) return
     const waiting = pendingDescriptions.value
-    if (loaded && waiting && props.adapter.updateLlmPrompt) {
-      const definitions = Object.fromEntries(Object.entries(waiting).filter(([, text]) => text.trim()))
-      await llm.savePrompt(props.datasetId, { template: loaded.template, definitions })
-      if (!promptError.value) {
-        pendingDescriptions.value = null
-        writePendingDescriptions(props.datasetId, null)
+    if (!waiting) return
+    if (promptError.value) {
+      sentencesError.value = promptError.value
+      return
+    }
+    const loaded = prompt.value
+    if (!loaded || !props.adapter.updateLlmPrompt) return
+    const defined = loaded.definitions ?? {}
+    const fill = Object.fromEntries(
+      Object.entries(waiting).filter(([label, text]) => text.trim() && (pendingFresh.value || !defined[label]?.trim())),
+    )
+    const changed = Object.entries(fill).some(([label, text]) => defined[label] !== text)
+    if (changed) {
+      await llm.savePrompt(datasetId, { template: loaded.template, definitions: { ...defined, ...fill } })
+      if (datasetId !== props.datasetId) return
+      if (promptError.value) {
+        sentencesError.value = promptError.value
+        return
       }
     }
+    // Saved, or the prompt already has a sentence for each of these labels.
+    clearPending()
   } finally {
     syncing = false
     emit('descriptions', descriptions.value)
+    if (rerun) {
+      rerun = false
+      await syncDescriptions()
+    }
   }
 }
 
 async function onLabelsSaved(saved: { dataset: Dataset; labels: string[]; descriptions: Record<string, string> }) {
   pendingDescriptions.value = saved.descriptions
+  pendingFresh.value = true
+  sentencesError.value = null
   writePendingDescriptions(props.datasetId, saved.descriptions)
   emit('labels-saved', { dataset: saved.dataset, labels: saved.labels })
   await syncDescriptions()
@@ -172,12 +265,8 @@ function onPanelState(state: { status: LlmStatus | null; agreement: LlmAgreement
   if (state.agreement) agreement.value = state.agreement
 }
 
+// The workspace keys the guide by Dataset, so a new Dataset mounts a new guide.
 onMounted(load)
-watch(() => props.datasetId, () => {
-  pendingDescriptions.value = readPendingDescriptions(props.datasetId)
-  announcedLoad = false
-  load()
-})
 watch(() => props.labels.join('\u0000'), refreshCounts)
 watch(() => props.labelsVersion, async () => {
   await refreshCounts()
@@ -227,11 +316,12 @@ watch([step, showing], async ([next, state]) => {
             v-for="(s, i) in GUIDE_STEPS"
             :key="s.key"
             class="vmlb-guide-rail-step"
-            :class="{ 'is-done': i < current, 'is-current': i === current }"
+            :class="{ 'is-done': i < current && met[s.key], 'is-skipped': i < current && !met[s.key], 'is-current': i === current }"
             :aria-current="i === current ? 'step' : undefined"
           >
             <span class="vmlb-guide-marker">
-              <template v-if="i < current"><Icon name="check" /><span class="vmlb-guide-sr">Done:</span></template>
+              <template v-if="i < current && met[s.key]"><Icon name="check" /><span class="vmlb-guide-sr">Done:</span></template>
+              <template v-else-if="i < current"><span class="vmlb-guide-sr">Skipped:</span>{{ i + 1 }}</template>
               <template v-else>{{ i + 1 }}</template>
             </span>
             <span class="vmlb-guide-rail-name">{{ s.short }}</span>
@@ -246,6 +336,11 @@ watch([step, showing], async ([next, state]) => {
       </div>
 
       <hr class="vmlb-guide-rule" />
+
+      <div v-if="sentencesError && pendingDescriptions" class="vmlb-guide-sentences-error">
+        <p role="alert"><Icon name="alert" /> Your labels are saved, but their sentences aren't saved yet: {{ sentencesError }}</p>
+        <button type="button" class="vmlb-btn-secondary vmlb-guide-target" @click="syncDescriptions">Try again</button>
+      </div>
 
       <div class="vmlb-guide-step">
         <h3 ref="heading" class="vmlb-guide-step-title" tabindex="-1">{{ currentStep.title }}</h3>
@@ -324,6 +419,9 @@ watch([step, showing], async ([next, state]) => {
 .is-current .vmlb-guide-marker { color: var(--vmlb-accent-strong); box-shadow: inset 0 0 0 2px var(--vmlb-accent); }
 .vmlb-guide-rail-name { margin-top: var(--vmlb-space-2xs); padding: 0 var(--vmlb-space-2xs); font-size: var(--vmlb-font-size-xs); line-height: 1.25; }
 .is-done .vmlb-guide-rail-name { color: var(--vmlb-text); }
+/* Passed over because nothing was left for it: muted, numbered, no check. */
+.is-skipped .vmlb-guide-marker { color: var(--vmlb-text-muted); box-shadow: inset 0 0 0 1px var(--vmlb-border); }
+.is-skipped .vmlb-guide-rail-name { color: var(--vmlb-text-muted); }
 .is-current .vmlb-guide-rail-name { color: var(--vmlb-text); font-weight: 700; }
 
 .vmlb-guide-compact { display: none; }
@@ -338,6 +436,8 @@ watch([step, showing], async ([next, state]) => {
 .vmlb-guide-step-title:focus-visible { outline: 2px solid var(--vmlb-accent); outline-offset: 2px; }
 .vmlb-guide-time { margin: var(--vmlb-space-2xs) 0 var(--vmlb-space-sm); color: var(--vmlb-text-muted); font-size: var(--vmlb-font-size-sm); }
 .vmlb-guide-text { margin: 0; }
+.vmlb-guide-sentences-error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--vmlb-space-sm); margin-bottom: var(--vmlb-space-md); }
+.vmlb-guide-sentences-error p { display: flex; align-items: center; gap: var(--vmlb-space-xs); margin: 0; color: var(--vmlb-error); }
 
 /* The skeleton takes the room the loaded panel takes. */
 .vmlb-guide-skeleton { display: flex; flex-direction: column; gap: var(--vmlb-space-xs); min-height: 16rem; }

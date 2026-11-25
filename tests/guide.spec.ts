@@ -7,6 +7,7 @@ import {
   labelsShortOfReady,
   readGuidePreference,
   readPendingDescriptions,
+  stepsMet,
   validateLabels,
   writeGuidePreference,
   writePendingDescriptions,
@@ -80,6 +81,19 @@ describe('guideStep', () => {
   it('names the labels short of two confirmed examples for the Ready step', () => {
     expect(labelsShortOfReady({ labels: ['Civil', 'Criminal'], confirmedPerLabel: { Civil: 2, Criminal: 1 } })).toEqual(['Criminal'])
     expect(labelsShortOfReady({ labels: ['Civil', 'Criminal'], confirmedPerLabel: null })).toEqual([])
+  })
+})
+
+describe('stepsMet', () => {
+  it('calls a step done only when its own condition is met', () => {
+    expect(stepsMet(progress({ confirmedPerLabel: { Civil: 5, Criminal: 5 }, confirmedTotal: 10, agreement: passed, pending: 0 }))).toEqual({
+      labels: true, connect: true, show: true, try: true, rest: true, ready: true,
+    })
+  })
+
+  it('leaves steps passed over because nothing was left as not done', () => {
+    const met = stepsMet(progress({ hasAccess: false, acknowledged: false, confirmedPerLabel: { Civil: 1, Criminal: 0 }, confirmedTotal: 1, pending: 0, agreement: null }))
+    expect(met).toEqual({ labels: true, connect: false, show: false, try: false, rest: false, ready: true })
   })
 })
 

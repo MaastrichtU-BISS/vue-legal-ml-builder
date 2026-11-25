@@ -232,6 +232,9 @@ describe('the demo label set', () => {
     const adapter = createMockAdapter()
     await expect(settle(adapter.setDatasetLabels!('ds-1', ['Civil']))).rejects.toThrow('Use at least two labels.')
     await expect(settle(adapter.setDatasetLabels!('ds-1', ['Civil', 'Civil']))).rejects.toThrow('Two labels have the same name.')
+    await expect(settle(adapter.setDatasetLabels!('ds-1', ['Civil', 'civil']))).rejects.toThrow('Two labels have the same name.')
+    const many = Array.from({ length: 51 }, (_, i) => `Label ${i}`)
+    await expect(settle(adapter.setDatasetLabels!('ds-1', many))).rejects.toThrow('Use at most 50 labels.')
     await expect(settle(adapter.setDatasetLabels!('ds-1', ['Civil', ' ']))).rejects.toThrow("Label names can't be empty.")
   })
 

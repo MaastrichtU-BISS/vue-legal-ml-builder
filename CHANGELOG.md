@@ -29,15 +29,20 @@ tagged `vX.Y.Z`.
 - **Step 1, "Your labels"**: two or more names, each with one sentence saying
   when to use it, with field-level errors, labels already used on an item shown
   read-only as "In use", "Saving…" while saving, and the typing kept when the
-  server refuses. Saving sets the label set, then saves the sentences as the
-  prompt's definitions in a new prompt version (template unchanged). Without
-  LLM access yet, the sentences wait in browser storage and are saved the next
-  time the prompt loads. The sentences also show beside the labels in the
-  labelling sidebar.
+  server refuses. On a Dataset that names fewer than two labels, the labels in
+  use are found by paging its labelled items (`pageAnnotationTasks`, holdout
+  included; the running loop's counts without it) before the form shows.
+  Saving sets the label set, then saves the sentences as the prompt's
+  definitions in a new prompt version (template unchanged). Without LLM access
+  yet, the sentences wait in browser storage and are saved the next time the
+  prompt loads, filling only definitions that are still empty. If the
+  sentences can't be saved, the guide says so with "Try again". The sentences
+  also show beside the labels in the labelling sidebar.
 - **"Hide guide"**, remembered per Dataset in browser storage
   (`vmlb-guide-hidden:<datasetId>`), shows today's AI panel unchanged with a
   one-line "Show guide" link. Without storage the guide shows. A Dataset that
-  already has LLM suggestions, with nothing stored, opens on today's panel.
+  already has LLM suggestions, or a Model-led loop running, with nothing
+  stored, opens on today's panels.
 - `AnnotationWorkspace` prop `guide?: 'auto' | 'hidden'` (default `auto`):
   `hidden` opens the screen without the guide for one visit, for a host's
   "Label by hand".
@@ -49,6 +54,18 @@ tagged `vX.Y.Z`.
   where the host offers LLM help.
 - `LlmAssistPanel` takes `embedded` (no card or title of its own) and emits
   `state` with the access and the agreement check as last read.
+- `stepsMet` (exported) says which steps' own conditions are met. The rail
+  marks a step done only then; steps passed because nothing was left show as
+  skipped.
+
+### Changed
+
+- For hosts whose adapter provides `getLlmStatus`, the guide now replaces the
+  standalone LLM card (`LlmAssistPanel`) by default on single-label task
+  types; "Hide guide" or `guide: 'hidden'` brings the card back.
+- `ActiveLearningPanel` ("Let the Model choose what to label next") is hidden
+  while the guide shows, so the guide is the one next action. Hosts without
+  `getLlmStatus` get no guide and keep the panel as before.
 
 ## [0.13.0] - 2026-11-23
 
