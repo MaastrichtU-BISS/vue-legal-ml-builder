@@ -114,7 +114,12 @@ const descriptions = computed<Record<string, string>>(() => {
 const inUse = computed(() => ({ promptVersion: prompt.value?.version ?? null, model: status.value?.model ?? null }))
 /** The agreement check for the prompt and model in use: a new prompt version
  * starts it from zero straight away, before the server's first new suggestion. */
-const check = computed(() => currentAgreement(agreement.value, inUse.value))
+/** With a prompt to read, its version must be known before asking, or the
+ * item would be asked about again once it loads. */
+const promptKnown = computed(() => !props.adapter.getLlmPrompt || prompt.value !== null || !!promptError.value)
+/** No check while the prompt version in use is still loading: the server's
+ * may be an older version's, and a passed one would flash Do the rest. */
+const check = computed(() => (ready.value && !promptKnown.value ? null : currentAgreement(agreement.value, inUse.value)))
 
 const progress = computed<GuideProgress>(() => ({
   labels: props.labels,
@@ -150,9 +155,6 @@ function folded(): boolean {
   if (!collapsible.value || detailsOpen.value) return false
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(PHONE_QUERY).matches
 }
-/** With a prompt to read, its version must be known before asking, or the
- * item would be asked about again once it loads. */
-const promptKnown = computed(() => !props.adapter.getLlmPrompt || prompt.value !== null || !!promptError.value)
 /** The guide has shown its step once. Before then, on the steps the agreement
  * check decides, it waits for the prompt too: the check is for the prompt
  * version in use, and the server's may still be an older one's. */

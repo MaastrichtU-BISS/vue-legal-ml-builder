@@ -28,9 +28,13 @@ const emit = defineEmits<{
 const others = computed(() => (props.suggestion ? props.labels.filter((label) => label !== props.suggestion!.label) : []))
 const count = computed(() => agreementLine(props.agreement))
 const showsCard = computed(() => props.view === 'ready' && !!props.suggestion)
-/** The ready card's rows, held invisibly behind every other state: one
- * label suggested, the rest offered as other labels. */
-const placeholder = computed(() => ({ label: props.labels[0] ?? '', others: props.labels.slice(1) }))
+/** The ready card's rows, held invisibly behind every other state. The
+ * longest label stands in for the suggested one, so a long suggestion's
+ * Accept button never needs more room than was held. */
+const placeholder = computed(() => {
+  const label = props.labels.reduce((longest, l) => (l.length > longest.length ? l : longest), '')
+  return { label, others: props.labels.filter((l) => l !== label) }
+})
 
 const root = ref<HTMLElement | null>(null)
 const card = ref<HTMLElement | null>(null)

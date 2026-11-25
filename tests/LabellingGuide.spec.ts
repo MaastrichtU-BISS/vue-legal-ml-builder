@@ -1560,6 +1560,39 @@ describe('step 4, Try it (PR #19 review)', () => {
     wrapper.unmount()
   })
 
+  it('after Allow in the same visit, never shows an older prompt’s passed check while the prompt loads', async () => {
+    let release: (prompt: unknown) => void = () => undefined
+    const getLlmPrompt = vi.fn(() => new Promise((resolve) => { release = resolve }))
+    const getLlmStatus = vi.fn().mockResolvedValueOnce(llmStatus({ acknowledged: false })).mockResolvedValue(llmStatus())
+    const { wrapper } = await mounted({
+      labels: ['Civil', 'Criminal'],
+      counts: { Civil: 20, Criminal: 22 },
+      stats: { total: 80, annotated: 42, percentage: 52 },
+      overrides: {
+        getLlmStatus,
+        // Prompt version 0 passed the check; the student has since saved version 1.
+        getLlmAgreement: vi.fn().mockResolvedValue(llmAgreement({ model: 'mistral-small', prompt_version: 0, checked: 30, agreed: 27, rate: 0.9, unlocked: true })),
+        getLlmPrompt: getLlmPrompt as MLAdapter['getLlmPrompt'],
+        createLlmSuggestions: vi.fn().mockResolvedValue({ suggestions: [llmSuggestion({ id: 's2', prompt_version: 1 })], skipped: 0, invalid: 0 }),
+      },
+    })
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+
+    await click(wrapper, 'Allow sending to openrouter.ai')
+    await flushPromises()
+
+    // The prompt is still loading: the old check doesn't count, so it stays on Try it.
+    expect(currentStep(wrapper).text()).toContain('Try it')
+    expect(guide(wrapper).text()).not.toContain('Let the AI label the rest')
+
+    release({ version: 1, template: DEFAULT_TEMPLATE, definitions: {} })
+    await flushPromises()
+
+    expect(currentStep(wrapper).text()).toContain('Try it')
+    expect(button(wrapper, 'Accept Criminal')).toBeDefined()
+    wrapper.unmount()
+  })
+
   it('keeps one polite live region mounted from the start, and puts the count in it when Try it shows', async () => {
     const getLlmStatus = vi.fn().mockResolvedValueOnce(llmStatus({ acknowledged: false })).mockResolvedValue(llmStatus())
     const { wrapper } = await mounted({ ...shown, overrides: { getLlmStatus } })
@@ -1582,7 +1615,8 @@ describe('step 4, Try it (PR #19 review)', () => {
 
     const held = guide(wrapper).find('.vmlb-guide-placeholder')
     expect(held.attributes('aria-hidden')).toBe('true')
-    expect(held.text()).toContain('Accept Civil')
+    // The longest label stands in for the suggestion, so a long one never needs more room.
+    expect(held.text()).toContain('Accept Criminal')
     expect(held.text()).toContain('Not right? Pick your label:')
     expect(held.findAll('button')).toHaveLength(0)
     expect(guide(wrapper).find('.vmlb-guide-keys').attributes('aria-hidden')).toBe('true')
