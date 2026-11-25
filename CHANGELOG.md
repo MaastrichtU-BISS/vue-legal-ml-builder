@@ -11,6 +11,59 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-25
+
+### Added
+
+- **The guide's step 5, "Do the rest", has its own words and controls**
+  (BAIGLE #196). It defaults to every item still to label, with "Only the
+  next N items" as an option (when the adapter lists pending items). "Work
+  out the cost" shows "Working out the cost…" while the server counts, then
+  reads "About X tokens. You have Y left this month."; with the student's own
+  key it says the provider charges for these tokens instead. A job larger
+  than what is left is not offered. "Start labelling N items" runs the job,
+  with its progress in the guide's one polite live region and a progress bar.
+- **A job can be left and picked up again.** The guide keeps only the job's
+  id per Dataset in browser storage and reads its progress from the server
+  on the next visit; a job the server no longer knows is forgotten. A failed
+  job shows "Labelling stopped after N of M. Those N are kept." as an alert
+  with Carry on, which estimates the rest again.
+- **When the AI has finished**, its labels wait: "Accept N AI labels" is the
+  only way to make them labels, and N counts only the suggestions the server
+  would accept (the passed check's model and prompt version, on one of the
+  Dataset's labels). "Check 10 at random first" opens the review screen on
+  10 of them picked at random in the browser; "Let the AI label more first"
+  returns to the estimate while items without an AI label remain.
+- **The review screen can check the AI's labels.** `LabelReview` takes
+  `check` (a list of suggestions): each item shows the AI's label as a kit
+  proposal, "The AI's label, not accepted yet", that the student accepts,
+  corrects or rejects; one moved past unanswered stays waiting. Focus goes
+  to its heading when it opens, and back to the guide's step on "Back to
+  the guide".
+- **The guide's step 6, "Ready to train"**: the confirmed examples per label,
+  a warning naming each label under 50 ("Only 12 “Prohibition” examples.
+  Your model may miss this label; 50 or more works better."), and Create
+  model as the main button, opening the workspace's `createModelHref`. With
+  a label at 0, Create model is disabled and the reason names the label.
+- **Back to Connect AI when the AI can't be used.** The shared allowance
+  running out (a refusal or a job stopped for it) or the key failing (a
+  `credential_unusable` refusal, or the provider refusing the key, in Try it
+  or Do the rest) returns the guide to Connect AI with the reason and the key
+  form, saying the labels already made are kept. Saving a key again returns
+  to where the student was.
+- `useLlmAssist` exposes `jobId`, `resumeJob` and `clearJob`. Exported from
+  the guide: `CHECK_SAMPLE`, `READY_WARN_BELOW`, `aiLabelsToAccept`,
+  `readySummary`, and the types `ReadyLabel`, `ReadySummary` and `RestScope`.
+
+### Changed
+
+- Steps 5 and 6 no longer show today's AI panel inside the guide. Hidden,
+  the guide still shows that panel unchanged.
+- `LabellingGuide` takes `createModelHref` and emits `check`;
+  `AnnotationWorkspace` passes its `createModelHref` and opens the review on
+  `check`. In Do the rest the item on screen shows the AI's waiting label as
+  a proposal, as the panel did.
+
 ## [0.16.0] - 2026-11-25
 
 ### Added
@@ -698,7 +751,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.13.0...v0.14.0
