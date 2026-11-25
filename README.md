@@ -108,6 +108,33 @@ said. Only a real change is saved, as the person's label (`saveAnnotationAssignm
 so moving past a file label leaves it the file's. NER items whose file lists
 entity types show them as a hint above the text.
 
+## Label with AI help (the guide)
+
+For single-label task types (`classification`, `document_classification`,
+`judgment_prediction`), when the adapter implements `getLlmStatus` and a
+`datasetId` is given, `AnnotationWorkspace` opens a guided mode: one panel,
+"Label with AI help", with a six-step rail (Your labels, Connect AI, Show it how,
+Try it, Do the rest, Ready to train) and the current step under it. The step is
+worked out every time from what the adapter reports (`guideStep`, exported):
+the Dataset's labels, LLM access and acknowledgement, confirmed labels per label
+(`pageAnnotationTasks` with `status: 'annotated'` and `label`, else the active
+learning `label_counts`), the server's agreement numbers and the items left.
+
+Step 1, "Your labels", names two or more labels with one sentence each. It needs
+the optional `setDatasetLabels(datasetId, labels)` (legal-ml-core
+`PUT /datasets/<id>/label-set` with `{"labels": [...]}`, returning `{dataset}`;
+a refusal's plain `error` is shown). The sentences are then saved as the
+prompt's definitions in a new prompt version; without LLM access yet they wait
+in browser storage until the prompt next loads. They show beside the labels in
+the labelling sidebar. Steps 2 to 6 show today's `LlmAssistPanel` controls for
+now.
+
+"Hide guide" is remembered per Dataset in browser storage
+(`vmlb-guide-hidden:<datasetId>`) and shows today's panel, as described below,
+with a "Show guide" link. A host can open the screen without the guide for one
+visit with `guide="hidden"` (BAIGLE's "Label by hand"). Other task types say
+"AI help isn't available for this kind of task yet."
+
 ## LLM suggestions
 
 `AnnotationWorkspace` shows `LlmAssistPanel` above the item for single-label

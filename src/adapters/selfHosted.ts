@@ -113,6 +113,10 @@ export function createSelfHostedAdapter(opts: SelfHostedAdapterOptions): MLAdapt
       const data = await get(`/datasets/${id}`)
       return data.dataset
     },
+    async setDatasetLabels(datasetId: Id, labels: string[]): Promise<Dataset> {
+      const data = await put(`/datasets/${datasetId}/label-set`, { labels })
+      return data.dataset
+    },
     async uploadDataset(file: File, meta: DatasetUploadMeta): Promise<Dataset> {
       const formData = new FormData()
       formData.append('file', file)

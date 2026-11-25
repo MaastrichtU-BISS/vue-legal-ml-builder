@@ -669,6 +669,11 @@ export interface MLAdapter {
   uploadDataset(file: File, meta: DatasetUploadMeta): Promise<Dataset>
   deleteDataset(id: Id): Promise<void>
   getEdaData(datasetId: Id): Promise<EdaResult>
+  /** Optional: sets or replaces a single-label Dataset's label list
+   * (legal-ml-core `PUT /datasets/<id>/label-set`). Once a label is used, only
+   * lists that keep every used label and add new ones are accepted. Rejects
+   * with the server's plain reason. Without it, the guide cannot save labels. */
+  setDatasetLabels?(datasetId: Id, labels: string[]): Promise<Dataset>
 
   // Models
   listModels(datasetId?: Id): Promise<MlModel[]>

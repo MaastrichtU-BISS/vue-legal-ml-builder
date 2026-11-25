@@ -11,6 +11,63 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-25
+
+### Added
+
+- **A guided "Label with AI help" mode in `AnnotationWorkspace`** (BAIGLE
+  #193). For single-label task types (`classification`,
+  `document_classification`, `judgment_prediction`) the workspace opens one
+  panel titled "Label with AI help": a six-step rail (Your labels, Connect AI,
+  Show it how, Try it, Do the rest, Ready to train), a hairline, then the
+  current step with its rough time. The step is worked out from what the
+  adapter reports each time (labels, LLM access and acknowledgement, confirmed
+  labels per label, the server's agreement numbers, items left), never stored;
+  `guideStep` is exported for hosts and tests. Steps 2 to 6 show today's
+  `LlmAssistPanel` controls under the step title until later releases give each
+  its own.
+- **Step 1, "Your labels"**: two or more names, each with one sentence saying
+  when to use it, with field-level errors, labels already used on an item shown
+  read-only as "In use", "Saving…" while saving, and the typing kept when the
+  server refuses. On a Dataset that names fewer than two labels, the labels in
+  use are found by paging its labelled items (`pageAnnotationTasks`, holdout
+  included; the running loop's counts without it) before the form shows.
+  Saving sets the label set, then saves the sentences as the prompt's
+  definitions in a new prompt version (template unchanged). Without LLM access
+  yet, the sentences wait in browser storage and are saved the next time the
+  prompt loads, filling only definitions that are still empty. If the
+  sentences can't be saved, the guide says so with "Try again". The sentences
+  also show beside the labels in the labelling sidebar.
+- **"Hide guide"**, remembered per Dataset in browser storage
+  (`vmlb-guide-hidden:<datasetId>`), shows today's AI panel unchanged with a
+  one-line "Show guide" link. Without storage the guide shows. A Dataset that
+  already has LLM suggestions, or a Model-led loop running, with nothing
+  stored, opens on today's panels.
+- `AnnotationWorkspace` prop `guide?: 'auto' | 'hidden' | 'shown'` (default `auto`;
+  `shown` opens the guide for one visit whatever was stored):
+  `hidden` opens the screen without the guide for one visit, for a host's
+  "Label by hand".
+- Optional `MLAdapter.setDatasetLabels(datasetId, labels)`, implemented by the
+  self-hosted adapter as `PUT /datasets/<id>/label-set` with
+  `{"labels": [...]}`, returning the Dataset and rejecting with the server's
+  plain `error`. The demo adapter follows the same rules.
+- Other task types say "AI help isn't available for this kind of task yet."
+  where the host offers LLM help.
+- `LlmAssistPanel` takes `embedded` (no card or title of its own) and emits
+  `state` with the access and the agreement check as last read.
+- `stepsMet` (exported) says which steps' own conditions are met. The rail
+  marks a step done only then; steps passed because nothing was left show as
+  skipped.
+
+### Changed
+
+- For hosts whose adapter provides `getLlmStatus`, the guide now replaces the
+  standalone LLM card (`LlmAssistPanel`) by default on single-label task
+  types; "Hide guide" or `guide: 'hidden'` brings the card back.
+- `ActiveLearningPanel` ("Let the Model choose what to label next") is hidden
+  while the guide shows, so the guide is the one next action. Hosts without
+  `getLlmStatus` get no guide and keep the panel as before.
+
 ## [0.13.0] - 2026-11-23
 
 ### Fixed
@@ -528,7 +585,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.10.1...v0.11.0

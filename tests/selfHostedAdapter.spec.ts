@@ -194,6 +194,18 @@ describe('createSelfHostedAdapter LLM methods', () => {
     expect(result).toEqual(ack)
   })
 
+  it('sets the label set of a Dataset', async () => {
+    const dataset = { id: 'ds-1', labels: ['Civil', 'Criminal'] }
+    const { calls, result } = await call({ dataset }, (a) => a.setDatasetLabels!('ds-1', ['Civil', 'Criminal']))
+    expect(calls).toEqual([expect.objectContaining({ url: '/api/datasets/ds-1/label-set', method: 'PUT', body: { labels: ['Civil', 'Criminal'] } })])
+    expect(result).toEqual(dataset)
+  })
+
+  it('rejects with the plain reason the label set was refused for', async () => {
+    const refused = call({ error: "'Civil' is already used on an item." }, (a) => a.setDatasetLabels!('ds-1', ['Criminal', 'Tort']), 400)
+    await expect(refused).rejects.toThrow("'Civil' is already used on an item.")
+  })
+
   it('reads and saves the prompt', async () => {
     const prompt = { version: 0, template: 'Label {labels} {text}', definitions: {} }
     const read = await call(prompt, (a) => a.getLlmPrompt!('ds-1'))
