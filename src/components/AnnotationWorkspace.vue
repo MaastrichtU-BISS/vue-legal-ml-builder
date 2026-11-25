@@ -197,12 +197,28 @@ const proposals = computed<Proposal[]>(() =>
 
 // Review of the labels the Dataset already has: file labels included (#148).
 const reviewing = ref(false)
+/** The guide's "Check 10 at random first": the AI's labels the review goes through. */
+const reviewCheck = ref<LlmSuggestion[] | null>(null)
+const guideRef = ref<{ focusHeading: () => void } | null>(null)
 const canReview = computed(
   () => !!adapter.value?.pageAnnotationTasks && !!props.datasetId && !!controls.value && annotated.value > 0,
 )
 async function closeReview() {
+  const fromGuide = !!reviewCheck.value
   reviewing.value = false
+  reviewCheck.value = null
   await reload()
+  // Back where the check was opened: the guide's step, with its Accept.
+  if (fromGuide) {
+    await nextTick()
+    guideRef.value?.focusHeading()
+  }
+}
+
+function onGuideCheck(list: LlmSuggestion[]) {
+  if (!list.length) return
+  reviewCheck.value = list
+  reviewing.value = true
 }
 
 async function reload() {
@@ -362,6 +378,7 @@ async function onLabelHoldout() {
     <LabellingGuide
       v-if="showGuide && adapter && datasetId"
       :key="datasetId"
+      ref="guideRef"
       :adapter="adapter"
       :project-id="projectId"
       :dataset-id="datasetId"
@@ -373,6 +390,7 @@ async function onLabelHoldout() {
       :current-task-id="task?.id ?? null"
       :current-holdout="holdout || !!task?.is_holdout"
       :busy="isSubmitting"
+      :create-model-href="createModelHref"
       @hide="setGuide(false)"
       @loaded="onGuideLoaded"
       @labels-saved="onGuideLabels"
@@ -382,6 +400,7 @@ async function onLabelHoldout() {
       @step="guideStepKey = $event"
       @answer="onGuideAnswer"
       @skip="onSkip"
+      @check="onGuideCheck"
     />
     <p v-else-if="guideAvailable" class="vmlb-guide-show">
       <button type="button" class="vmlb-guide-show-link" @click="setGuide(true)">Show guide</button>
@@ -414,6 +433,7 @@ async function onLabelHoldout() {
       :dataset-id="datasetId"
       :labels="offeredLabels"
       :document-label-mode="controls === 'multi' ? 'multi' : 'single'"
+      :check="reviewCheck ?? undefined"
       @saved="labelsVersion += 1"
       @close="closeReview"
     />

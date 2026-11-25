@@ -21,6 +21,8 @@ const props = defineProps<{
   hasAccess: boolean
   /** The shared key's monthly allowance is used up. */
   budgetExhausted: boolean
+  /** Why the key stopped working while the AI was in use; the guide came back here for it. */
+  failure?: string | null
   /** Saves the key; resolves with the refusal, or null once saved. */
   saveKey: (key: LlmKeyInput) => Promise<{ message: string; code: string | null } | null>
   /** Allows sending to the destination shown; resolves with the refusal's
@@ -36,7 +38,7 @@ const emit = defineEmits<{
 const ownKeyChosen = ref(false)
 const sharedDown = computed(() => props.status?.mode === 'shared' && props.status.shared_key_available === false)
 const outOfTokens = computed(() => props.budgetExhausted && props.status?.mode === 'shared' && !sharedDown.value)
-const showKeyForm = computed(() => !props.hasAccess || outOfTokens.value || ownKeyChosen.value)
+const showKeyForm = computed(() => !props.hasAccess || outOfTokens.value || !!props.failure || ownKeyChosen.value)
 const destination = computed(() => props.status?.destination ?? '')
 
 // The own-key form. The key is read when sent and cleared straight after.
@@ -236,6 +238,10 @@ async function onAllow() {
         <Icon name="alert" />
         <span>This month's shared AI allowance is used up. The suggestions already made are kept. Add your own key to carry on, or label the rest yourself.</span>
       </p>
+      <p v-else-if="failure" class="vmlb-guide-warning" role="alert">
+        <Icon name="alert" />
+        <span>The AI key stopped working: {{ failure }} The labels the AI already made are kept. Add a key again to carry on, or label the rest yourself.</span>
+      </p>
       <p v-else-if="sharedDown" class="vmlb-guide-warning" role="alert">
         <Icon name="alert" />
         <span>The shared AI can't be used right now, because its usage can't be checked. Add your own key to carry on, or label it yourself.</span>
@@ -256,7 +262,7 @@ async function onAllow() {
         Your account can't use the shared AI. To get suggestions, add a key from an AI provider. A key is like a password
         that lets this platform use your account there; the provider may charge you for what it uses.
       </p>
-      <p v-if="outOfTokens || sharedDown" class="vmlb-guide-text">
+      <p v-if="outOfTokens || failure || sharedDown" class="vmlb-guide-text">
         A key is like a password that lets this platform use your account at an AI provider; the provider may charge you
         for what it uses.
       </p>

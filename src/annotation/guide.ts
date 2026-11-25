@@ -2,7 +2,7 @@
 // and the per-Dataset choice to hide it. The step is always worked out from
 // what the server reports, never stored.
 
-import type { Id, LlmAgreement } from '../types'
+import type { Id, LlmAgreement, LlmSuggestion } from '../types'
 
 export type GuideStepKey = 'labels' | 'connect' | 'show' | 'try' | 'rest' | 'ready'
 
@@ -199,6 +199,89 @@ export function labelsShortOfReady(p: Pick<GuideProgress, 'labels' | 'confirmedP
   return p.labels.filter((label) => (p.confirmedPerLabel![label] ?? 0) < READY_PER_LABEL)
 }
 
+// ---------------------------------------------------------------------------
+// Step 5, Do the rest, and step 6, Ready to train.
+// ---------------------------------------------------------------------------
+
+/** Do the rest's items: every item still to label (null), or only the next `count`. */
+export interface RestScope {
+  count: number | null
+}
+
+/** How many of the AI's labels "Check them first" shows. */
+export const CHECK_SAMPLE = 10
+/** Below this many confirmed examples, Ready to train names the label in a warning. */
+export const READY_WARN_BELOW = 50
+
+/** The AI's labels a bulk accept would make labels: waiting suggestions from
+ * the model and prompt version the passed check is for, on one of the
+ * Dataset's labels. The server accepts exactly these. */
+export function aiLabelsToAccept(suggestions: LlmSuggestion[], check: LlmAgreement | null, labels: string[]): LlmSuggestion[] {
+  if (!check) return []
+  return suggestions.filter(
+    (s) =>
+      s.status === 'pending' &&
+      (!check.model || s.model === check.model) &&
+      (check.prompt_version === null || s.prompt_version === check.prompt_version) &&
+      labels.includes(s.label),
+  )
+}
+
+/** Up to `n` items picked at random, each at most once. */
+export function pickAtRandom<T>(items: T[], n: number, random: () => number = Math.random): T[] {
+  const pool = [...items]
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1))
+    ;[pool[i], pool[j]] = [pool[j], pool[i]]
+  }
+  return pool.slice(0, n)
+}
+
+export interface ReadyLabel {
+  label: string
+  count: number
+}
+
+export interface ReadySummary {
+  labels: ReadyLabel[]
+  /** Labels with some examples but fewer than READY_WARN_BELOW. */
+  few: ReadyLabel[]
+  /** Labels with no examples: a model can't be trained. */
+  none: string[]
+}
+
+/** Ready to train's counts per label, the labels to warn about, and those
+ * that block Create model. Empty when the server cannot count per label. */
+export function readySummary(p: Pick<GuideProgress, 'labels' | 'confirmedPerLabel'>): ReadySummary {
+  if (p.confirmedPerLabel === null) return { labels: [], few: [], none: [] }
+  const labels = p.labels.map((label) => ({ label, count: p.confirmedPerLabel![label] ?? 0 }))
+  return {
+    labels,
+    few: labels.filter((l) => l.count > 0 && l.count < READY_WARN_BELOW),
+    none: labels.filter((l) => l.count === 0).map((l) => l.label),
+  }
+}
+
+/** The server's words when the key was refused or is gone, not when it was
+ * only rate-limited: "rejected the API key", "key … is no longer available". */
+const KEY_FAILED = /(rejected|refused)\b.*\bkey\b|\bkey\b.*\b(no longer|can't be used|cannot be used)\b/i
+
+/** A refusal that means the key itself stopped working, in words for the
+ * student; null for any other. The server gives a provider's refusal of the
+ * key no code of its own (it is an `llm_failed`), so its message says so. */
+export function keyFailureReason(code: string | null | undefined, message: string | null | undefined): string | null {
+  const text = message?.trim() ?? ''
+  if (code === 'credential_unusable') return text || "The AI key can't be used any more."
+  if (code === 'llm_failed' && KEY_FAILED.test(text)) return text
+  return null
+}
+
+/** The same for a job the worker stopped: its error names the key when the key was the reason. */
+export function jobKeyFailureReason(error: string | null | undefined): string | null {
+  const text = error?.trim() ?? ''
+  return KEY_FAILED.test(text) ? text : null
+}
+
 export function stepIndex(key: GuideStepKey): number {
   return GUIDE_STEPS.findIndex((step) => step.key === key)
 }
@@ -231,6 +314,29 @@ export function writeGuidePreference(datasetId: Id, hidden: boolean): void {
     window.localStorage.setItem(guideStorageKey(datasetId), hidden ? '1' : '0')
   } catch {
     // No storage: the choice lasts for this visit only.
+  }
+}
+
+/** The Do the rest job last started on a Dataset. Only its id is kept: its
+ * progress is always read from the server. */
+function jobKey(datasetId: Id): string {
+  return `vmlb-guide-job:${datasetId}`
+}
+
+export function readGuideJob(datasetId: Id): Id | null {
+  try {
+    return window.localStorage.getItem(jobKey(datasetId))
+  } catch {
+    return null
+  }
+}
+
+export function writeGuideJob(datasetId: Id, jobId: Id | null): void {
+  try {
+    if (jobId) window.localStorage.setItem(jobKey(datasetId), jobId)
+    else window.localStorage.removeItem(jobKey(datasetId))
+  } catch {
+    // No storage: a job left running is picked up again only in this visit.
   }
 }
 

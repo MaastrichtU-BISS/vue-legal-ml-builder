@@ -2,6 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   GUIDE_STEPS,
   agreementLine,
+  aiLabelsToAccept,
+  jobKeyFailureReason,
+  keyFailureReason,
+  pickAtRandom,
+  readGuideJob,
+  readySummary,
+  writeGuideJob,
   agreementLow,
   agreementPassed,
   currentAgreement,
@@ -273,5 +280,53 @@ describe('Try it: the item’s waiting suggestion', () => {
     expect(waitingSuggestion([now], 't1', { promptVersion: 1, model: 'other' })).toBeNull()
     expect(waitingSuggestion([now], 't2', { promptVersion: null, model: null })).toBeNull()
     expect(waitingSuggestion([{ ...now, status: 'accepted' }], 't1', { promptVersion: null, model: null })).toBeNull()
+  })
+})
+
+describe('Do the rest and Ready to train (BAIGLE #196)', () => {
+  const check = { model: 'm', prompt_version: 2, checked: 30, agreed: 27, rate: 0.9, min_sample: 30, threshold: 0.8, unlocked: true }
+  const s = (id: string, over: Record<string, unknown> = {}) =>
+    ({ id, task_id: id, model: 'm', prompt_version: 2, label: 'A', rationale: '', status: 'pending', created_at: '', ...over }) as never
+
+  it('counts only waiting AI labels from the checked model and prompt, on a named label', () => {
+    const list = [s('1'), s('2', { model: 'x' }), s('3', { prompt_version: 1 }), s('4', { label: 'Gone' }), s('5', { status: 'accepted' })]
+    expect(aiLabelsToAccept(list, check, ['A', 'B']).map((x: { id: string }) => x.id)).toEqual(['1'])
+    expect(aiLabelsToAccept(list, null, ['A', 'B'])).toEqual([])
+  })
+
+  it('picks at most n, each once', () => {
+    const picked = pickAtRandom([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 10)
+    expect(picked).toHaveLength(10)
+    expect(new Set(picked).size).toBe(10)
+    expect(pickAtRandom([1, 2], 10)).toHaveLength(2)
+  })
+
+  it('warns about labels under 50 and blocks on labels with none', () => {
+    const summary = readySummary({ labels: ['A', 'B', 'C'], confirmedPerLabel: { A: 60, B: 12 } })
+    expect(summary.labels).toEqual([{ label: 'A', count: 60 }, { label: 'B', count: 12 }, { label: 'C', count: 0 }])
+    expect(summary.few).toEqual([{ label: 'B', count: 12 }])
+    expect(summary.none).toEqual(['C'])
+    expect(readySummary({ labels: ['A', 'B'], confirmedPerLabel: null })).toEqual({ labels: [], few: [], none: [] })
+  })
+
+  it('tells a failed key from other failures', () => {
+    expect(keyFailureReason('llm_failed', 'The LLM service rejected the API key.')).toBe('The LLM service rejected the API key.')
+    expect(keyFailureReason('credential_unusable', 'The saved key could not be read.')).toBe('The saved key could not be read.')
+    expect(keyFailureReason('llm_failed', 'The LLM service is rate limiting this key. Try again later.')).toBeNull()
+    expect(keyFailureReason('llm_failed', 'The LLM service returned an error.')).toBeNull()
+    expect(keyFailureReason('budget_exhausted', 'Add your own API key to continue.')).toBeNull()
+    expect(jobKeyFailureReason('The LLM key for this job is no longer available.')).toBe('The LLM key for this job is no longer available.')
+    expect(jobKeyFailureReason('The annotation job failed.')).toBeNull()
+  })
+
+  it('keeps only the job id per Dataset, and survives without storage', () => {
+    writeGuideJob('ds-1', 'job-1')
+    expect(readGuideJob('ds-1')).toBe('job-1')
+    writeGuideJob('ds-1', null)
+    expect(readGuideJob('ds-1')).toBeNull()
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied') })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied') })
+    expect(() => writeGuideJob('ds-1', 'job-2')).not.toThrow()
+    expect(readGuideJob('ds-1')).toBeNull()
   })
 })

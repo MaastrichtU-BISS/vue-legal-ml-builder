@@ -1356,8 +1356,8 @@ describe('phones: the folded Show it how (PR #18 review)', () => {
   })
 })
 
-describe("waiting sentences with the guide on a step that shows today's panel (PR #18 review)", () => {
-  it('are saved once, by the guide, not again by the embedded panel', async () => {
+describe('waiting sentences with the guide on Do the rest (PR #18 review)', () => {
+  it('are saved once, by the guide, with no panel of its own in the step', async () => {
     localStorage.setItem('vmlb-guide-hidden:ds-1', '0')
     localStorage.setItem('vmlb-guide-descriptions:ds-1', JSON.stringify({ Civil: 'Private disputes.', Criminal: 'Offences.' }))
     const updateLlmPrompt = vi.fn(async (_id: string, edit: { template: string; definitions: Record<string, string> }) => ({ version: 1, ...edit }))
@@ -1376,7 +1376,6 @@ describe("waiting sentences with the guide on a step that shows today's panel (P
       overrides: {
         updateLlmPrompt,
         getLlmPrompt,
-        // Do the rest still shows today's panel (until BAIGLE #196).
         getLlmAgreement: vi.fn().mockResolvedValue(llmAgreement({ checked: 30, agreed: 27, rate: 0.9, unlocked: true })),
       },
     })
@@ -1385,9 +1384,9 @@ describe("waiting sentences with the guide on a step that shows today's panel (P
     await flushPromises()
 
     expect(currentStep(wrapper).text()).toContain('Do the rest')
-    // The embedded panel is mounted, and its own access arrived (ready turned true) as it loaded.
-    expect(guide(wrapper).find('section[aria-label="LLM suggestions"]').exists()).toBe(true)
-    expect(guide(wrapper).text()).toContain('Suggest labels for this batch')
+    // Do the rest has its own controls (BAIGLE #196), not today's panel.
+    expect(guide(wrapper).find('section[aria-label="LLM suggestions"]').exists()).toBe(false)
+    expect(button(wrapper, 'Work out the cost')).toBeDefined()
     expect(updateLlmPrompt).toHaveBeenCalledTimes(1)
     expect(localStorage.getItem('vmlb-guide-descriptions:ds-1')).toBeNull()
     wrapper.unmount()
