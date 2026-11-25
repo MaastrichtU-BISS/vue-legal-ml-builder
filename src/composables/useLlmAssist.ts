@@ -1,7 +1,7 @@
 import { computed, onUnmounted, ref, type Ref } from 'vue'
 import { count } from '../annotation/annotationState'
-import { batchSummary } from '../annotation/llmAssist'
-import type { Id, LlmAgreement, LlmEstimate, LlmJob, LlmKeyInput, LlmPrompt, LlmRefusalError, LlmStatus, LlmSuggestion, MLAdapter } from '../types'
+import { batchSummary, newestFirst } from '../annotation/llmAssist'
+import type { Id, LlmAgreement, LlmEstimate, LlmJob, LlmKeyInput, LlmPrompt, LlmRefusalError, LlmStatus, LlmSuggestion, LlmSuggestionBatch, MLAdapter } from '../types'
 import { createPollLoop, type PollLoop } from '../utils/polling'
 
 /** Refusals after which the status on screen is out of date. */
@@ -154,6 +154,25 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     }, 'Failed to get suggestions')
   }
 
+  /** Why the last one-item suggestion failed, for the guide's Try it. */
+  const suggestError = ref<string | null>(null)
+
+  /** One item's suggestion, for the guide's Try it: what came back, or null
+   * when the request failed (the reason in `suggestError`). The new suggestion
+   * joins what is waiting, first, so it is the item's current one. */
+  async function suggestOne(datasetId: Id, taskId: Id): Promise<LlmSuggestionBatch | null> {
+    let batch: LlmSuggestionBatch | null = null
+    await run(datasetId, async () => {
+      const result = await adapter.createLlmSuggestions!(datasetId, [taskId])
+      if (datasetId !== currentId) return
+      batch = result
+      const created = result.suggestions.filter((s) => s.status === 'pending')
+      suggestions.value = newestFirst([...created, ...suggestions.value.filter((s) => !created.some((c) => c.id === s.id))])
+    }, "The AI didn't answer", suggestError)
+    // Set inside the callback, which narrowing can't see.
+    return batch as LlmSuggestionBatch | null
+  }
+
   function loadPrompt(datasetId: Id) {
     return run(datasetId, async () => {
       const next = await adapter.getLlmPrompt!(datasetId)
@@ -218,6 +237,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     status, suggestions, agreement, prompt, promptError, error, errorCode, notice, isBusy, budgetExhausted, hasAccess, ready,
     estimate, job,
     refresh, refreshProgress, saveKey, deleteKey, acknowledge, suggest, bulkAccept, loadPrompt, savePrompt,
+    suggestOne, suggestError,
     estimateJob, clearEstimate, startJob,
   }
 }

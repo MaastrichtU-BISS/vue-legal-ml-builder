@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   GUIDE_STEPS,
+  agreementLine,
+  agreementLow,
   agreementPassed,
+  currentAgreement,
   definitionsToFill,
   showTargets,
   guideStep,
@@ -15,7 +18,8 @@ import {
   writePendingDescriptions,
   type GuideProgress,
 } from '../src/annotation/guide'
-import { llmAgreement } from './fixtures/llm'
+import { waitingSuggestion } from '../src/annotation/llmAssist'
+import { llmAgreement, llmSuggestion } from './fixtures/llm'
 
 const passed = llmAgreement({ checked: 30, agreed: 27, rate: 0.9, unlocked: true })
 
@@ -219,5 +223,51 @@ describe('definitionsToFill', () => {
 
   it('replaces definitions with sentences typed this visit, leaving out unchanged and empty ones', () => {
     expect(definitionsToFill({ Civil: 'Old.', Criminal: 'Same.' }, { Civil: 'New.', Criminal: 'Same.', Other: ' ' }, true)).toEqual({ Civil: 'New.' })
+  })
+})
+
+describe('Try it: the agreement check', () => {
+  const checked = llmAgreement({ model: 'm', prompt_version: 1, checked: 30, agreed: 21, rate: 0.7 })
+
+  it('is the server’s check while the prompt version and model are the ones in use', () => {
+    expect(currentAgreement(checked, { promptVersion: 1, model: 'm' })).toEqual(checked)
+    expect(currentAgreement(checked, { promptVersion: null, model: null })).toEqual(checked)
+    expect(currentAgreement(null, { promptVersion: 1, model: 'm' })).toBeNull()
+  })
+
+  it('starts from zero for a newer prompt version or another model, keeping the server’s settings', () => {
+    const fresh = currentAgreement(checked, { promptVersion: 2, model: 'm' })!
+    expect(fresh).toMatchObject({ prompt_version: 2, checked: 0, agreed: 0, rate: null, unlocked: false, min_sample: 30, threshold: 0.8 })
+    expect(currentAgreement(checked, { promptVersion: 1, model: 'other' })!.checked).toBe(0)
+  })
+
+  it('is low only at the server’s full sample under its threshold', () => {
+    expect(agreementLow(checked)).toBe(true)
+    expect(agreementLow(llmAgreement({ checked: 29, agreed: 10, rate: 10 / 29 }))).toBe(false)
+    expect(agreementLow(llmAgreement({ checked: 30, agreed: 24, rate: 0.8 }))).toBe(false)
+    expect(agreementLow(llmAgreement({ checked: 10, agreed: 8, rate: 0.8, min_sample: 10, threshold: 0.9 }))).toBe(true)
+    expect(agreementLow(null)).toBe(false)
+  })
+
+  it('reads the running count in the server’s numbers', () => {
+    expect(agreementLine(llmAgreement())).toBe('30 more to check before it can label the rest.')
+    expect(agreementLine(llmAgreement({ checked: 20, agreed: 17, rate: 0.85 }))).toBe(
+      'The AI agreed with you on 17 of 20. 10 more to check before it can label the rest.',
+    )
+    expect(agreementLine(checked)).toBe(
+      'The AI agreed with you on 21 of 30. It needs to agree at least 80% of the time before it can label the rest.',
+    )
+  })
+})
+
+describe('Try it: the item’s waiting suggestion', () => {
+  it('is the newest pending one for the item, from the prompt version and model in use', () => {
+    const old = llmSuggestion({ id: 'old', prompt_version: 0 })
+    const now = llmSuggestion({ id: 'now', prompt_version: 1 })
+    expect(waitingSuggestion([old, now], 't1', { promptVersion: 1, model: 'mistral-small' })!.id).toBe('now')
+    expect(waitingSuggestion([old], 't1', { promptVersion: 1, model: 'mistral-small' })).toBeNull()
+    expect(waitingSuggestion([now], 't1', { promptVersion: 1, model: 'other' })).toBeNull()
+    expect(waitingSuggestion([now], 't2', { promptVersion: null, model: null })).toBeNull()
+    expect(waitingSuggestion([{ ...now, status: 'accepted' }], 't1', { promptVersion: null, model: null })).toBeNull()
   })
 })

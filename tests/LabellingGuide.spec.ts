@@ -1358,6 +1358,7 @@ describe('phones: the folded Show it how (PR #18 review)', () => {
 
 describe("waiting sentences with the guide on a step that shows today's panel (PR #18 review)", () => {
   it('are saved once, by the guide, not again by the embedded panel', async () => {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '0')
     localStorage.setItem('vmlb-guide-descriptions:ds-1', JSON.stringify({ Civil: 'Private disputes.', Criminal: 'Offences.' }))
     const updateLlmPrompt = vi.fn(async (_id: string, edit: { template: string; definitions: Record<string, string> }) => ({ version: 1, ...edit }))
     // The prompt answers only once both the guide and the panel have asked for
@@ -1372,18 +1373,281 @@ describe("waiting sentences with the guide on a step that shows today's panel (P
       labels: ['Civil', 'Criminal'],
       counts: { Civil: 6, Criminal: 6 },
       stats: { total: 40, annotated: 12, percentage: 30 },
-      overrides: { updateLlmPrompt, getLlmPrompt },
+      overrides: {
+        updateLlmPrompt,
+        getLlmPrompt,
+        // Do the rest still shows today's panel (until BAIGLE #196).
+        getLlmAgreement: vi.fn().mockResolvedValue(llmAgreement({ checked: 30, agreed: 27, rate: 0.9, unlocked: true })),
+      },
     })
     await flushPromises()
     release()
     await flushPromises()
 
-    expect(currentStep(wrapper).text()).toContain('Try it')
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
     // The embedded panel is mounted, and its own access arrived (ready turned true) as it loaded.
     expect(guide(wrapper).find('section[aria-label="LLM suggestions"]').exists()).toBe(true)
     expect(guide(wrapper).text()).toContain('Suggest labels for this batch')
     expect(updateLlmPrompt).toHaveBeenCalledTimes(1)
     expect(localStorage.getItem('vmlb-guide-descriptions:ds-1')).toBeNull()
+    wrapper.unmount()
+  })
+})
+
+describe('step 4, Try it', () => {
+  /** Enough shown (6 of each, 12 in all) with 40 items: the guide is on Try it. */
+  const shown = { labels: ['Civil', 'Criminal'], counts: { Civil: 6, Criminal: 6 }, stats: { total: 40, annotated: 12, percentage: 30 } }
+  const suggested = () => vi.fn().mockResolvedValue({ suggestions: [llmSuggestion()], skipped: 0, invalid: 0 })
+  const card = (wrapper: Wrapper) => guide(wrapper).find('[aria-label="The AI\'s suggestion"]')
+  const liveCount = (wrapper: Wrapper) => guide(wrapper).find('[aria-live="polite"]')
+
+  async function onTry(overrides: Partial<MLAdapter> = {}, setup: Setup = {}) {
+    return mounted({ ...shown, ...setup, overrides: { createLlmSuggestions: suggested(), ...overrides } })
+  }
+
+  it("asks the AI about the item on screen and shows its label and reason with Accept <label>", async () => {
+    const { adapter, wrapper } = await onTry()
+
+    expect(currentStep(wrapper).text()).toContain('Try it')
+    expect(stepHeading(wrapper).text()).toBe('Try the AI on a few items')
+    expect(adapter.createLlmSuggestions).toHaveBeenCalledTimes(1)
+    expect(adapter.createLlmSuggestions).toHaveBeenCalledWith('ds-1', ['t1'])
+    expect(card(wrapper).text()).toContain('The AI suggests Criminal')
+    expect(card(wrapper).text()).toContain('The clause sets out a penalty for an offence.')
+    expect(button(wrapper, 'Accept Criminal')).toBeDefined()
+    // The item's own proposal isn't shown as well: one Accept, in the guide.
+    expect(button(wrapper, 'Accept')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('accepts the suggestion, which saves it as the label', async () => {
+    const { adapter, wrapper } = await onTry()
+
+    await click(wrapper, 'Accept Criminal')
+
+    expect(adapter.confirmLlmSuggestion).toHaveBeenCalledTimes(1)
+    expect(adapter.confirmLlmSuggestion).toHaveBeenCalledWith('s1')
+    wrapper.unmount()
+  })
+
+  it("picking another label rejects the suggestion and saves the student's label", async () => {
+    const { adapter, wrapper } = await onTry()
+
+    const other = card(wrapper).findAll('button').find((b) => b.text() === 'Civil')!
+    expect(card(wrapper).findAll('button').some((b) => b.text() === 'Criminal')).toBe(false)
+    await other.trigger('click')
+    await flushPromises()
+
+    expect(adapter.confirmLlmSuggestion).toHaveBeenCalledWith('s1', 'Civil')
+    wrapper.unmount()
+  })
+
+  it('accepts a focused suggestion with Enter, and skips with S', async () => {
+    const { adapter, wrapper } = await onTry({ skipAnnotation: vi.fn().mockResolvedValue({}) })
+
+    ;(card(wrapper).element as HTMLElement).focus()
+    await card(wrapper).trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(adapter.confirmLlmSuggestion).toHaveBeenCalledWith('s1')
+
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 's', bubbles: true }))
+    await flushPromises()
+    expect(adapter.skipAnnotation).toHaveBeenCalledWith('t1')
+    wrapper.unmount()
+  })
+
+  it('counts the checks still needed from the server’s settings, in a polite live region', async () => {
+    const { wrapper } = await onTry()
+    expect(liveCount(wrapper).text()).toBe('30 more to check before it can label the rest.')
+    wrapper.unmount()
+
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '0')
+    const other = await onTry({
+      getLlmAgreement: vi.fn().mockResolvedValue(llmAgreement({ checked: 12, agreed: 10, rate: 10 / 12, min_sample: 20, threshold: 0.9 })),
+    })
+    expect(liveCount(other.wrapper).text()).toBe('The AI agreed with you on 10 of 12. 8 more to check before it can label the rest.')
+    other.wrapper.unmount()
+  })
+
+  it('shows Asking the AI… in the suggestion’s place while it waits', async () => {
+    let answer: (batch: unknown) => void = () => undefined
+    const createLlmSuggestions = vi.fn(() => new Promise((resolve) => { answer = resolve }))
+    const { wrapper } = await onTry({ createLlmSuggestions: createLlmSuggestions as MLAdapter['createLlmSuggestions'] })
+
+    const asking = guide(wrapper).findAll('[role="status"]').find((s) => s.text() === 'Asking the AI…')!
+    expect(asking).toBeDefined()
+    expect(button(wrapper, 'Accept Criminal')).toBeUndefined()
+    const box = asking.element.parentElement!
+
+    answer({ suggestions: [llmSuggestion()], skipped: 0, invalid: 0 })
+    await flushPromises()
+    expect(guide(wrapper).text()).not.toContain('Asking the AI…')
+    expect(box.contains(card(wrapper).element)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it("says when the AI didn't answer, and tries again", async () => {
+    const createLlmSuggestions = vi.fn()
+      .mockRejectedValueOnce(refusal('Provider unavailable', 'llm_failed'))
+      .mockResolvedValue({ suggestions: [llmSuggestion()], skipped: 0, invalid: 0 })
+    const { adapter, wrapper } = await onTry({ createLlmSuggestions })
+
+    expect(alerts(wrapper)).toContain("The AI didn't answer. Label this one yourself, or try again.")
+    await click(wrapper, 'Try again')
+
+    expect(adapter.createLlmSuggestions).toHaveBeenCalledTimes(2)
+    expect(button(wrapper, 'Accept Criminal')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it("reports an answer that wasn't one of the labels as skipped", async () => {
+    const { wrapper } = await onTry({ createLlmSuggestions: vi.fn().mockResolvedValue({ suggestions: [], skipped: 0, invalid: 1 }) })
+
+    expect(guide(wrapper).text()).toContain("Skipped: the AI's answer wasn't one of your labels. Label this one yourself.")
+    expect(button(wrapper, 'Accept Criminal')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('shows no suggestion for a held-out item, and says why', async () => {
+    const { adapter, wrapper } = await onTry({
+      getNextAnnotationTask: vi.fn().mockResolvedValue({ task: { ...item, is_holdout: true }, stats: shown.stats }),
+    })
+
+    expect(adapter.createLlmSuggestions).not.toHaveBeenCalled()
+    expect(guide(wrapper).text()).toContain('This item is kept aside to test your model later. You label these yourself; the AI never sees them.')
+    expect(button(wrapper, 'Accept Criminal')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('moves to Do the rest once the check passes', async () => {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '0')
+    const getLlmAgreement = vi.fn()
+      .mockResolvedValueOnce(llmAgreement({ model: 'mistral-small', prompt_version: 0, checked: 29, agreed: 26, rate: 26 / 29 }))
+      .mockResolvedValue(llmAgreement({ model: 'mistral-small', prompt_version: 0, checked: 30, agreed: 27, rate: 0.9, unlocked: true }))
+    const { wrapper } = await onTry({ getLlmAgreement })
+    expect(liveCount(wrapper).text()).toBe('The AI agreed with you on 26 of 29. 1 more to check before it can label the rest.')
+
+    await click(wrapper, 'Accept Criminal')
+    await flushPromises()
+
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
+    expect(document.activeElement).toBe(stepHeading(wrapper).element)
+    wrapper.unmount()
+  })
+})
+
+describe('step 4, Try it: improving the descriptions', () => {
+  const shown = { labels: ['Civil', 'Criminal'], counts: { Civil: 20, Criminal: 22 }, stats: { total: 80, annotated: 42, percentage: 52 } }
+  const low = llmAgreement({ model: 'mistral-small', prompt_version: 0, checked: 30, agreed: 21, rate: 0.7 })
+  const disagreed = { ...item, id: 't9', text: 'A fine is due for late filing.', status: 'annotated' as const, annotation_label: 'Civil' }
+
+  async function improving(overrides: Partial<MLAdapter> = {}) {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '0')
+    return mounted({
+      ...shown,
+      overrides: {
+        getLlmAgreement: vi.fn().mockResolvedValue(low),
+        getLlmPrompt: vi.fn().mockResolvedValue({ version: 0, template: DEFAULT_TEMPLATE, definitions: { Civil: 'Private disputes.', Criminal: 'Offences.' } }),
+        listLlmSuggestions: vi.fn(async (_id: string, status?: string) =>
+          status === 'corrected' ? [llmSuggestion({ id: 's9', task_id: 't9', label: 'Criminal', status: 'corrected' })] : [],
+        ),
+        listAnnotationTasks: vi.fn().mockResolvedValue([disagreed]),
+        createLlmSuggestions: vi.fn().mockResolvedValue({ suggestions: [llmSuggestion({ id: 's2', prompt_version: 1 })], skipped: 0, invalid: 0 }),
+        ...overrides,
+      },
+    })
+  }
+
+  it('becomes Make your descriptions clearer at the full sample under the threshold, listing the disagreements', async () => {
+    const { adapter, wrapper } = await improving()
+
+    expect(currentStep(wrapper).text()).toContain('Try it')
+    expect(stepHeading(wrapper).text()).toBe('Make your descriptions clearer')
+    expect(guide(wrapper).text()).toContain('The AI agreed with you on 21 of 30 (70%). It needs 80% before it can label the rest.')
+    const rows = guide(wrapper).findAll('li').filter((li) => li.text().includes('A fine is due for late filing.'))
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text()).toContain('Your label: Civil')
+    expect(rows[0].text()).toContain("The AI's label: Criminal")
+    expect((wrapper.find('textarea[name="description-Civil"]').element as HTMLTextAreaElement).value).toBe('Private disputes.')
+    expect(wrapper.find('label[for="vmlb-guide-describe-Criminal"]').text()).toBe('What Criminal means')
+    expect(guide(wrapper).text()).toContain('Saving starts the check again with your new descriptions.')
+    // No suggestion is asked for while the descriptions are being improved.
+    expect(adapter.createLlmSuggestions).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('saves the descriptions as a new prompt version and returns to Try it, with the check from zero', async () => {
+    const updateLlmPrompt = vi.fn(async (_id: string, edit: { template: string; definitions: Record<string, string> }) => ({ version: 1, ...edit }))
+    const { adapter, wrapper } = await improving({ updateLlmPrompt })
+
+    await wrapper.find('textarea[name="description-Civil"]').setValue('Disputes between private parties, such as contracts.')
+    await click(wrapper, 'Save descriptions')
+    await flushPromises()
+
+    expect(updateLlmPrompt).toHaveBeenCalledWith('ds-1', {
+      template: DEFAULT_TEMPLATE,
+      definitions: { Civil: 'Disputes between private parties, such as contracts.', Criminal: 'Offences.' },
+    })
+    expect(stepHeading(wrapper).text()).toBe('Try the AI on a few items')
+    expect(document.activeElement).toBe(stepHeading(wrapper).element)
+    expect(guide(wrapper).find('[aria-live="polite"]').text()).toBe('30 more to check before it can label the rest.')
+    expect(adapter.createLlmSuggestions).toHaveBeenCalledWith('ds-1', ['t1'])
+    expect(button(wrapper, 'Accept Criminal')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('shows Saving… while it saves, and the reason when the server refuses', async () => {
+    let refuse: (err: Error) => void = () => undefined
+    const updateLlmPrompt = vi.fn(() => new Promise<never>((_resolve, reject) => { refuse = reject }))
+    const { wrapper } = await improving({ updateLlmPrompt: updateLlmPrompt as MLAdapter['updateLlmPrompt'] })
+
+    await button(wrapper, 'Save descriptions')!.trigger('click')
+    await flushPromises()
+    expect(button(wrapper, 'Saving…')).toBeDefined()
+
+    refuse(refusal('Definitions must only explain how to choose a label.', 'prompt_rejected'))
+    await flushPromises()
+    expect(alerts(wrapper)).toContain('Definitions must only explain how to choose a label.')
+    expect(stepHeading(wrapper).text()).toBe('Make your descriptions clearer')
+    wrapper.unmount()
+  })
+
+  it('keeps going one item at a time without ever unlocking bulk accept', async () => {
+    const { adapter, wrapper } = await improving()
+
+    await click(wrapper, 'Keep going one item at a time')
+
+    expect(currentStep(wrapper).text()).toContain('Try it')
+    expect(stepHeading(wrapper).text()).toBe('Try the AI on a few items')
+    expect(button(wrapper, 'Accept Criminal')).toBeDefined()
+    expect(guide(wrapper).find('[aria-live="polite"]').text()).toBe(
+      'The AI agreed with you on 21 of 30. It needs to agree at least 80% of the time before it can label the rest.',
+    )
+    expect(wrapper.text()).not.toContain('Accept all waiting suggestions')
+    expect(adapter.bulkAcceptLlmSuggestions).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
+
+describe('phones: the folded Try it', () => {
+  it('reads Step 4 of 6 · Agreed X of Y, with the suggestion outside the folded part', async () => {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '0')
+    const { wrapper } = await mounted({
+      labels: ['Civil', 'Criminal'],
+      counts: { Civil: 10, Criminal: 10 },
+      stats: { total: 60, annotated: 20, percentage: 33 },
+      overrides: {
+        getLlmAgreement: vi.fn().mockResolvedValue(llmAgreement({ checked: 20, agreed: 17, rate: 0.85 })),
+        createLlmSuggestions: vi.fn().mockResolvedValue({ suggestions: [llmSuggestion()], skipped: 0, invalid: 0 }),
+      },
+    })
+
+    const details = button(wrapper, 'Details')!
+    expect(details.element.parentElement!.textContent).toContain('Step 4 of 6 · Agreed 17 of 20')
+    const body = wrapper.find(`#${details.attributes('aria-controls')}`)
+    expect(body.text()).toContain('Try the AI on a few items')
+    const accept = button(wrapper, 'Accept Criminal')!
+    expect(body.element.contains(accept.element)).toBe(false)
     wrapper.unmount()
   })
 })

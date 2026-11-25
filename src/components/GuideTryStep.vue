@@ -1,0 +1,157 @@
+<script setup lang="ts">
+import { computed, nextTick, ref, watch } from 'vue'
+import { agreementLine, type TryView } from '../annotation/guide'
+import type { LlmAgreement, LlmSuggestion } from '../types'
+import Icon from './shared/Icon.vue'
+
+// Step 4, "Try it": the AI's suggestion for the item below, and how often it
+// has agreed with the student so far. A suggestion is never a label until the
+// student accepts it or picks their own (BAIGLE ADR 0003). This card sits
+// outside the guide's foldable body, so on a phone it stays above the item.
+
+const props = defineProps<{
+  labels: string[]
+  view: TryView
+  suggestion: LlmSuggestion | null
+  /** The check for the prompt version and model in use. */
+  agreement: LlmAgreement | null
+  /** A label is being saved. */
+  busy: boolean
+}>()
+const emit = defineEmits<{
+  (e: 'accept', suggestion: LlmSuggestion): void
+  (e: 'correct', answer: { suggestion: LlmSuggestion; label: string }): void
+  (e: 'retry'): void
+  (e: 'skip'): void
+}>()
+
+const others = computed(() => (props.suggestion ? props.labels.filter((label) => label !== props.suggestion!.label) : []))
+const count = computed(() => agreementLine(props.agreement))
+
+const card = ref<HTMLElement | null>(null)
+/** The student answered from the card: the next suggestion takes focus, so the
+ * keyboard flow carries on from item to item. */
+let refocus = false
+
+function accept() {
+  if (!props.suggestion || props.busy) return
+  refocus = true
+  emit('accept', props.suggestion)
+}
+
+function correct(label: string) {
+  if (!props.suggestion || props.busy) return
+  refocus = true
+  emit('correct', { suggestion: props.suggestion, label })
+}
+
+function skip() {
+  refocus = true
+  emit('skip')
+}
+
+watch(
+  () => props.suggestion?.id,
+  async (id) => {
+    if (!id || !refocus) return
+    refocus = false
+    await nextTick()
+    card.value?.focus()
+  },
+)
+</script>
+
+<template>
+  <div class="vmlb-guide-try">
+    <!-- One box for every state, so "Asking the AI…" and the suggestion take the same room. -->
+    <div class="vmlb-guide-suggestion">
+      <p v-if="view === 'holdout'" class="vmlb-guide-try-holdout">
+        This item is kept aside to test your model later. You label these yourself; the AI never sees them.
+      </p>
+
+      <p v-else-if="view === 'asking'" class="vmlb-guide-asking" role="status">
+        <span class="vmlb-guide-pulse" aria-hidden="true" /> Asking the AI…
+      </p>
+
+      <div v-else-if="view === 'failed'" class="vmlb-guide-try-failed">
+        <p role="alert"><Icon name="alert" /> The AI didn't answer. Label this one yourself, or try again.</p>
+        <button type="button" class="vmlb-btn-secondary vmlb-guide-target" @click="emit('retry')">Try again</button>
+      </div>
+
+      <p v-else-if="view === 'invalid'" class="vmlb-guide-text" role="status">
+        Skipped: the AI's answer wasn't one of your labels. Label this one yourself.
+      </p>
+
+      <p v-else-if="view === 'answered'" class="vmlb-guide-text">The AI has no suggestion for this item. Label it yourself.</p>
+
+      <div
+        v-else-if="view === 'ready' && suggestion"
+        ref="card"
+        class="vmlb-guide-suggested"
+        tabindex="0"
+        role="group"
+        aria-label="The AI's suggestion"
+        aria-keyshortcuts="Enter S"
+        @keydown.enter.self.prevent="accept"
+      >
+        <p class="vmlb-guide-suggested-label"><Icon name="spark" /> The AI suggests <strong>{{ suggestion.label }}</strong></p>
+        <p class="vmlb-guide-reason">{{ suggestion.rationale }}</p>
+        <div class="vmlb-guide-try-actions">
+          <button type="button" class="vmlb-btn-primary vmlb-guide-target" :disabled="busy" @click="accept">Accept {{ suggestion.label }}</button>
+          <button type="button" class="vmlb-btn-tertiary vmlb-guide-target" :disabled="busy" title="Skip this item (S key)" @click="skip">Skip</button>
+        </div>
+        <div v-if="others.length" class="vmlb-guide-try-others" role="group" aria-labelledby="vmlb-guide-try-others">
+          <p id="vmlb-guide-try-others">Not right? Pick your label:</p>
+          <button
+            v-for="label in others"
+            :key="label"
+            type="button"
+            class="vmlb-btn-secondary vmlb-guide-target"
+            :disabled="busy"
+            @click="correct(label)"
+          >
+            {{ label }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <p class="vmlb-guide-count vmlb-num" aria-live="polite">{{ count }}</p>
+    <p v-if="view === 'ready'" class="vmlb-guide-keys">Press <kbd>Enter</kbd> on the suggestion to accept it, <kbd>S</kbd> to skip.</p>
+  </div>
+</template>
+
+<style scoped>
+.vmlb-guide-try { display: flex; flex-direction: column; gap: var(--vmlb-space-xs); margin-top: var(--vmlb-space-sm); }
+/* Room for a suggestion in every state, so nothing below moves when it arrives. */
+.vmlb-guide-suggestion {
+  min-height: 9rem; padding: var(--vmlb-space-sm) var(--vmlb-space-md);
+  border-radius: var(--vmlb-radius-md); background: var(--vmlb-surface); color: var(--vmlb-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vmlb-accent) 22%, var(--vmlb-surface));
+}
+.vmlb-guide-suggestion p { margin: 0; }
+.vmlb-guide-text { margin: 0; }
+.vmlb-guide-try-holdout { color: var(--vmlb-text); }
+.vmlb-guide-asking { display: flex; align-items: center; gap: var(--vmlb-space-xs); min-height: 2.75rem; color: var(--vmlb-text-muted); }
+.vmlb-guide-pulse {
+  width: 0.625rem; height: 0.625rem; border-radius: 999px; background: var(--vmlb-accent);
+  animation: vmlb-guide-pulse 1.2s ease-in-out infinite;
+}
+@keyframes vmlb-guide-pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .vmlb-guide-pulse { animation: none; } }
+.vmlb-guide-try-failed { display: flex; flex-direction: column; align-items: flex-start; gap: var(--vmlb-space-sm); }
+.vmlb-guide-try-failed p { display: flex; align-items: center; gap: var(--vmlb-space-xs); color: var(--vmlb-error); }
+.vmlb-guide-suggested { display: flex; flex-direction: column; gap: var(--vmlb-space-xs); border-radius: var(--vmlb-radius-sm); }
+.vmlb-guide-suggested:focus-visible { outline: 2px solid var(--vmlb-accent); outline-offset: 4px; }
+.vmlb-guide-suggested-label { display: flex; align-items: center; gap: var(--vmlb-space-xs); font-size: var(--vmlb-font-size-base); }
+.vmlb-guide-suggested-label :deep(svg) { color: var(--vmlb-accent); }
+.vmlb-guide-reason { color: var(--vmlb-text-muted); }
+.vmlb-guide-try-actions, .vmlb-guide-try-others { display: flex; flex-wrap: wrap; align-items: center; gap: var(--vmlb-space-xs); }
+.vmlb-guide-try-others p { width: 100%; font-size: var(--vmlb-font-size-sm); color: var(--vmlb-text-muted); }
+.vmlb-guide-target { min-height: 2.75rem; }
+.vmlb-guide-try :focus-visible { outline: 2px solid var(--vmlb-accent); outline-offset: 2px; }
+.vmlb-guide-count { margin: 0; font-size: var(--vmlb-font-size-sm); }
+.vmlb-guide-keys { margin: 0; color: var(--vmlb-text-muted); font-size: var(--vmlb-font-size-xs); }
+.vmlb-guide-keys kbd { padding: 0 var(--vmlb-space-2xs); border: 1px solid var(--vmlb-border-strong); border-radius: var(--vmlb-radius-sm); font-family: var(--vmlb-font-mono, monospace); }
+.vmlb-num { font-variant-numeric: tabular-nums; }
+</style>
