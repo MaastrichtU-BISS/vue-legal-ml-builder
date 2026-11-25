@@ -253,6 +253,8 @@ async function onAllow() {
 .vmlb-guide-text { margin: 0; }
 .vmlb-guide-hint { margin: var(--vmlb-space-2xs) 0 0; color: var(--vmlb-text-muted); font-size: var(--vmlb-font-size-sm); }
 .vmlb-guide-key { display: flex; flex-direction: column; gap: var(--vmlb-space-sm); max-width: 28rem; }
+/* The form's gap spaces the fields; the shared field margin would double it. */
+.vmlb-guide-key .vmlb-field { margin: 0; }
 .vmlb-guide-input { min-height: 2.75rem; }
 .vmlb-guide-actions { display: flex; flex-wrap: wrap; gap: var(--vmlb-space-sm); }
 .vmlb-guide-target { min-height: 2.75rem; }
