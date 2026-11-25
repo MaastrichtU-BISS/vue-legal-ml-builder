@@ -755,8 +755,10 @@ watch([llm.errorCode, llm.error, llm.suggestError], ([code, error, suggestError]
 watch(step, (value) => {
   if (value !== 'rest') restError.value = null
 })
-watch(restCandidate, (value) => {
-  if (value && loadState.value === 'ready') void loadRest()
+// Also when the guide finishes loading: a Dataset that became a Do the rest
+// candidate while it loaded would otherwise never read what is left.
+watch([restCandidate, loadState], ([candidate, state], [wasCandidate, wasState]) => {
+  if (candidate && state === 'ready' && (!wasCandidate || wasState !== 'ready')) void loadRest()
 })
 
 /** Focus the step's heading, e.g. when the student comes back from checking the AI's labels. */

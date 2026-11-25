@@ -684,6 +684,19 @@ describe('step 6, Ready to train', () => {
     wrapper.unmount()
   })
 
+  it('offers Ready to train when an estimate finds nothing left the AI can label', async () => {
+    const { wrapper } = await mounted({
+      counts: { Civil: 6, Criminal: 6 },
+      overrides: { estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 0 })) },
+    })
+
+    await click(wrapper, 'Work out the cost')
+    expect(guide(wrapper).text()).toContain('left for you to label')
+    await click(wrapper, 'Go to Ready to train')
+    expect(currentStep(wrapper).text()).toContain('Ready to train')
+    wrapper.unmount()
+  })
+
   it('says it, not they, when the AI labelled one item', async () => {
     const { wrapper } = await mounted({
       stats: { total: 13, annotated: 12, percentage: 92 },

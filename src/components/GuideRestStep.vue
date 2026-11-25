@@ -228,6 +228,9 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
       <p class="vmlb-guide-hint">
         The AI has already given its answer on {{ pending === 1 ? 'it' : 'each of them' }}, so it won't label {{ pending === 1 ? 'it' : 'them' }} again. Label {{ pending === 1 ? 'it' : 'them' }} yourself in the item below.
       </p>
+      <div v-if="canFinish" class="vmlb-guide-actions">
+        <button type="button" class="vmlb-btn-secondary vmlb-guide-target" @click="emit('finish')">Go to Ready to train</button>
+      </div>
     </template>
 
     <p v-if="error" class="vmlb-guide-error" role="alert"><Icon name="alert" /> {{ error }}</p>
