@@ -19,6 +19,8 @@ type IconName =
   | 'layers'
   | 'alert'
   | 'inbox'
+  | 'lock'
+  | 'plus'
 const PATHS: Record<IconName, string> = {
   close: 'M6 6l12 12M18 6L6 18',
   check: 'M5 12.5l4.5 4.5L19 7.5',
@@ -33,6 +35,8 @@ const PATHS: Record<IconName, string> = {
   layers: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17l9 5 9-5',
   alert: 'M12 4l9 16H3zM12 10v4M12 17.5h.01',
   inbox: 'M4 13h4l2 3h4l2-3h4M4 13l2-8h12l2 8v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z',
+  lock: 'M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3',
+  plus: 'M12 5v14M5 12h14',
 }
 
 const path = computed(() => PATHS[props.name])

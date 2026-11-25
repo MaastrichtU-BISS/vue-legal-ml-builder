@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 import type { Assignment } from 'legal-annotation-kit'
-import type { AnnotationTask, MLAdapter } from '../src/types'
+import type { AnnotationTask, Dataset, MLAdapter } from '../src/types'
 
 /** A task's empty Assignment, as legal-ml-core opens an unlabelled task. */
 export function emptyAssignment(taskId: string): Assignment {
@@ -19,6 +19,7 @@ export function createTestAdapter(overrides: Partial<MLAdapter> = {}): MLAdapter
     uploadDataset: vi.fn(),
     deleteDataset: vi.fn(),
     getEdaData: vi.fn(),
+    setDatasetLabels: vi.fn(async (id: string, labels: string[]) => ({ id, labels }) as Dataset),
 
     listModels: vi.fn().mockResolvedValue([]),
     getModel: vi.fn(),

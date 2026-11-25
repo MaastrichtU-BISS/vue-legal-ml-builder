@@ -3,7 +3,7 @@ import { computed, inject, onMounted, ref, watch } from 'vue'
 import { count } from '../annotation/annotationState'
 import { SUGGEST_BATCH_SIZE, batchSummary, percent, queueOrder, tokens } from '../annotation/llmAssist'
 import { useLlmAssist } from '../composables/useLlmAssist'
-import type { Id, LlmSuggestion, MLAdapter } from '../types'
+import type { Id, LlmAgreement, LlmStatus, LlmSuggestion, MLAdapter } from '../types'
 import Icon from './shared/Icon.vue'
 
 const props = defineProps<{
@@ -16,11 +16,15 @@ const props = defineProps<{
   currentTaskId?: Id | null
   /** Bumped by the host after each saved label, to refresh what is waiting. */
   labelsVersion: number
+  /** Inside the guide: no card or title of its own, the guide's step has them. */
+  embedded?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'suggestions', suggestions: LlmSuggestion[]): void
   /** Suggestions became labels without the workspace, so its queue is stale. */
   (e: 'labelled'): void
+  /** The access and the agreement check as last read, for the guide's step. */
+  (e: 'state', state: { status: LlmStatus | null; agreement: LlmAgreement | null }): void
 }>()
 
 const {
@@ -106,11 +110,12 @@ onMounted(() => refresh(props.datasetId))
 watch(() => props.datasetId, (id) => refresh(id))
 watch(() => props.labelsVersion, () => refreshProgress(props.datasetId))
 watch(suggestions, (value) => emit('suggestions', value))
+watch([status, agreement], ([nextStatus, nextAgreement]) => emit('state', { status: nextStatus, agreement: nextAgreement }))
 </script>
 
 <template>
-  <section class="vmlb-card vmlb-llm" aria-label="LLM suggestions">
-    <h2 class="vmlb-llm-title">LLM suggestions</h2>
+  <section class="vmlb-llm" :class="embedded ? 'vmlb-llm-embedded' : 'vmlb-card'" aria-label="LLM suggestions">
+    <h2 v-if="!embedded" class="vmlb-llm-title">LLM suggestions</h2>
     <div v-if="error" class="vmlb-alert-error"><Icon name="alert" /> {{ error }}</div>
     <p v-if="notice" class="vmlb-muted" role="status">{{ notice }}</p>
 
@@ -280,6 +285,7 @@ watch(suggestions, (value) => emit('suggestions', value))
 
 <style scoped>
 .vmlb-llm { margin-bottom: 1.25rem; padding: 1.25rem 1.5rem; font-size: var(--vmlb-font-size-md); }
+.vmlb-llm-embedded { margin: 0; padding: 0; }
 .vmlb-llm-title { margin: 0 0 0.35rem; font-size: var(--vmlb-font-size-base); font-weight: 600; }
 .vmlb-llm-status { margin: 0.35rem 0; }
 .vmlb-llm-ack { margin: 0.75rem 0; padding: 0.75rem 0.85rem; border-radius: var(--vmlb-radius-md); background: var(--vmlb-accent-soft); }

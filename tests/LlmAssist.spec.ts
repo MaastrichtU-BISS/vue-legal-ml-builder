@@ -19,7 +19,8 @@ async function mounted(overrides: Partial<MLAdapter> = {}, props = {}, withLlm =
     ...overrides,
   })
   const wrapper = mount(AnnotationWorkspace, {
-    props: { adapter, projectId: 'p1', datasetId: 'ds-1', ...props },
+    // Today's panel, as it shows with the guide hidden (LabellingGuide.spec covers the guide).
+    props: { adapter, projectId: 'p1', datasetId: 'ds-1', guide: 'hidden' as const, ...props },
     attachTo: document.body,
   })
   await flushPromises()

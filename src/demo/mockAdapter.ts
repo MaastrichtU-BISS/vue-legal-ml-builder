@@ -163,6 +163,27 @@ export function createMockAdapter(): MLAdapter {
       if (!ds) throw new Error('Dataset not found')
       return delay(withProgress(ds))
     },
+    // As legal-ml-core's PUT /datasets/<id>/label-set: replace freely until a
+    // label is used, then only keep every used label and add new ones.
+    async setDatasetLabels(id, labels) {
+      const ds = datasets.find((d) => d.id === id)
+      if (!ds) throw new Error('Dataset not found')
+      if (!['classification', 'document_classification', 'judgment_prediction'].includes(ds.task_type)) {
+        throw new Error('Labels can only be set for a task with one label per item.')
+      }
+      const names = labels.map((label) => label.trim())
+      if (names.some((name) => !name)) throw new Error("Label names can't be empty.")
+      if (new Set(names).size !== names.length) throw new Error('Two labels have the same name.')
+      if (names.length < 2) throw new Error('Use at least two labels.')
+      const used = new Set(
+        tasksOf(id).filter((t) => t.status === 'annotated' && t.annotation_label).map((t) => String(t.annotation_label)),
+      )
+      const missing = [...used].find((label) => !names.includes(label))
+      if (missing) throw new Error(`'${missing}' is already used on an item, so it can't be renamed or removed.`)
+      ds.labels = names
+      ds.updated_at = new Date().toISOString()
+      return delay(withProgress(ds))
+    },
     async uploadDataset(file, meta) {
       datasetSeq++
       const ds: Dataset = {

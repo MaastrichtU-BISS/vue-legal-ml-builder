@@ -208,3 +208,43 @@ describe('the demo adapter summarization', () => {
     expect(models.abstractive.every((m) => m.id.startsWith('hf:'))).toBe(true)
   })
 })
+
+describe('the demo label set', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  async function settle<T>(promise: Promise<T>): Promise<T> {
+    const settled = promise.then((value) => ({ value }), (error: Error) => ({ error }))
+    await vi.advanceTimersByTimeAsync(1_000)
+    const result = await settled
+    if ('error' in result) throw result.error
+    return result.value
+  }
+
+  it('sets the labels of a Dataset with no used labels', async () => {
+    const adapter = createMockAdapter()
+    const dataset = await settle(adapter.setDatasetLabels!('ds-1', [' Civil', 'Criminal ']))
+    expect(dataset.labels).toEqual(['Civil', 'Criminal'])
+  })
+
+  it('refuses fewer than two, repeated or empty names, as the server does', async () => {
+    const adapter = createMockAdapter()
+    await expect(settle(adapter.setDatasetLabels!('ds-1', ['Civil']))).rejects.toThrow('Use at least two labels.')
+    await expect(settle(adapter.setDatasetLabels!('ds-1', ['Civil', 'Civil']))).rejects.toThrow('Two labels have the same name.')
+    await expect(settle(adapter.setDatasetLabels!('ds-1', ['Civil', ' ']))).rejects.toThrow("Label names can't be empty.")
+  })
+
+  it('keeps every label already used on an item', async () => {
+    const adapter = createMockAdapter()
+    const { task } = await settle(adapter.getNextAnnotationTask('p1', DEMO_ANNOTATION_DATASET))
+    const labels = (await settle(adapter.getDataset(DEMO_ANNOTATION_DATASET))).labels!
+    await settle(adapter.saveAnnotation(task!.id, labels[0]))
+
+    await expect(settle(adapter.setDatasetLabels!(DEMO_ANNOTATION_DATASET, labels.slice(1)))).rejects.toThrow(/already used/)
+    const added = await settle(adapter.setDatasetLabels!(DEMO_ANNOTATION_DATASET, [...labels, 'Definition']))
+    expect(added.labels).toEqual([...labels, 'Definition'])
+    // Put the shared demo Dataset back as it was.
+    await settle(adapter.setDatasetLabels!(DEMO_ANNOTATION_DATASET, labels))
+  })
+})

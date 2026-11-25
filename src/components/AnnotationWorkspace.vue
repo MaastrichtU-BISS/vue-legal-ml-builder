@@ -3,7 +3,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } fr
 import { AnnotatorView } from 'legal-annotation-kit'
 import type { Assignment, Proposal } from 'legal-annotation-kit'
 import 'legal-annotation-kit/style.css'
-import type { AnnotationAssignment, AnnotationTask, LlmSuggestion, MLAdapter } from '../types'
+import type { AnnotationAssignment, AnnotationTask, Dataset, LlmSuggestion, MLAdapter } from '../types'
 import {
   ANNOTATION_STATE,
   annotationControls,
@@ -13,10 +13,18 @@ import {
   nothingToAnnotateReason,
 } from '../annotation/annotationState'
 import { kitLabelset } from '../annotation/labelColours'
+import {
+  isSingleLabelTask,
+  readGuidePreference,
+  readPendingDescriptions,
+  writeGuidePreference,
+  type GuidePreference,
+} from '../annotation/guide'
 import { useAnnotation } from '../composables/useAnnotation'
 import { taskTypeLabel } from './modelCatalogData'
 import ActiveLearningPanel from './ActiveLearningPanel.vue'
 import LlmAssistPanel from './LlmAssistPanel.vue'
+import LabellingGuide from './LabellingGuide.vue'
 import LabelReview from './LabelReview.vue'
 import Icon from './shared/Icon.vue'
 
@@ -42,7 +50,11 @@ const props = withDefaults(defineProps<{
   /** Hide this view and skip every annotation operation (hosts with their own
    * annotation, e.g. Legal Blocks). Defaults to the plugin's `hideAnnotation`. */
   hideAnnotation?: boolean
-}>(), { hideAnnotation: undefined, taskType: 'classification', rowCount: 0, unlabelledRows: 0 })
+  /** The "Label with AI help" guide. `auto` shows it unless the student hid it
+   * for this Dataset; `hidden` opens the screen without it for this visit
+   * (a host's "Label by hand"). */
+  guide?: 'auto' | 'hidden'
+}>(), { hideAnnotation: undefined, taskType: 'classification', rowCount: 0, unlabelledRows: 0, guide: 'auto' })
 
 const injectedAdapter = inject<MLAdapter | null>('vmlb:adapter', null)
 const injectedHide = inject<boolean>('vmlb:hideAnnotation', false)
@@ -109,6 +121,58 @@ const showLoop = computed(
 const showLlm = computed(
   () => controls.value === 'single' && !!props.datasetId && !!adapter.value?.getLlmStatus && namedLabels.value.length >= 2,
 )
+
+// The guided "Label with AI help" mode, for single-label task types only.
+const guideAvailable = computed(
+  () => controls.value === 'single' && isSingleLabelTask(props.taskType) && !!props.datasetId && !!adapter.value?.getLlmStatus,
+)
+/** Other task types, where a host offers LLM help, are told it isn't there yet. */
+const aiUnavailable = computed(
+  () => !isSingleLabelTask(props.taskType) && !!props.datasetId && !!adapter.value?.getLlmStatus,
+)
+const guidePreference = ref<GuidePreference>(null)
+const guideOpen = ref(false)
+const showGuide = computed(() => guideAvailable.value && guideOpen.value)
+/** Each label's sentence, shown beside the labels while labelling. */
+const labelDescriptions = ref<Record<string, string>>({})
+const describedLabels = computed(() =>
+  offeredLabels.value.filter((label) => labelDescriptions.value[label]?.trim()).map((label) => ({ label, text: labelDescriptions.value[label] })),
+)
+/** Labels already on an item, which the guide keeps read-only. */
+const labelsInUse = computed(() => [...new Set([...usedLabels.value, ...(typedLabels.value ? opened.value?.labels ?? [] : [])])])
+
+watch(
+  () => props.datasetId,
+  (id) => {
+    guidePreference.value = id ? readGuidePreference(id) : null
+    guideOpen.value = guidePreference.value !== 'hidden' && props.guide !== 'hidden'
+    labelDescriptions.value = (id && readPendingDescriptions(id)) || {}
+  },
+  { immediate: true },
+)
+
+/** With nothing stored, a Dataset that already has LLM suggestions opens on
+ * today's panel; one without keeps the guide, remembered from now on. */
+function onGuideLoaded({ hasSuggestions }: { hasSuggestions: boolean }) {
+  if (guidePreference.value !== null || !props.datasetId) return
+  if (hasSuggestions) {
+    guideOpen.value = false
+    return
+  }
+  writeGuidePreference(props.datasetId, false)
+  guidePreference.value = 'shown'
+}
+
+function setGuide(open: boolean) {
+  guideOpen.value = open
+  if (!props.datasetId) return
+  writeGuidePreference(props.datasetId, !open)
+  guidePreference.value = open ? 'shown' : 'hidden'
+}
+
+function onGuideLabels({ dataset, labels }: { dataset: Dataset; labels: string[] }) {
+  datasetLabels.value = dataset?.labels?.length ? dataset.labels : labels
+}
 const suggestion = computed(() =>
   showLlm.value && task.value ? suggestions.value.find((s) => s.task_id === task.value!.id && s.status === 'pending') ?? null : null,
 )
@@ -279,8 +343,31 @@ async function onLabelHoldout() {
       @labels="usedLabels = $event"
     />
 
+    <LabellingGuide
+      v-if="showGuide && adapter && datasetId"
+      :adapter="adapter"
+      :project-id="projectId"
+      :dataset-id="datasetId"
+      :labels="namedLabels"
+      :in-use="labelsInUse"
+      :stats="stats"
+      :stats-loading="isLoading"
+      :labels-version="labelsVersion"
+      :current-task-id="task?.id ?? null"
+      @hide="setGuide(false)"
+      @loaded="onGuideLoaded"
+      @labels-saved="onGuideLabels"
+      @descriptions="labelDescriptions = $event"
+      @suggestions="suggestions = $event"
+      @labelled="onLlmLabelled"
+    />
+    <p v-else-if="guideAvailable" class="vmlb-guide-show">
+      <button type="button" class="vmlb-guide-show-link" @click="setGuide(true)">Show guide</button>
+    </p>
+    <p v-if="aiUnavailable" class="vmlb-muted vmlb-ai-unavailable" role="note">AI help isn't available for this kind of task yet.</p>
+
     <LlmAssistPanel
-      v-if="showLlm && adapter && datasetId"
+      v-if="!showGuide && showLlm && adapter && datasetId"
       :adapter="adapter"
       :project-id="projectId"
       :dataset-id="datasetId"
@@ -356,8 +443,14 @@ async function onLabelHoldout() {
               Skip
             </button>
           </template>
-          <template v-if="typedLabels" #sidebar-top>
-            <form class="vmlb-new-label" @submit.prevent="addLabel">
+          <template v-if="typedLabels || describedLabels.length" #sidebar-top>
+            <dl v-if="describedLabels.length" class="vmlb-label-notes" aria-label="What your labels mean">
+              <div v-for="note in describedLabels" :key="note.label">
+                <dt>{{ note.label }}</dt>
+                <dd>{{ note.text }}</dd>
+              </div>
+            </dl>
+            <form v-if="typedLabels" class="vmlb-new-label" @submit.prevent="addLabel">
               <input v-model="newLabel" type="text" placeholder="New label" aria-label="New label" />
               <button type="submit" class="vmlb-btn-tertiary" :disabled="!newLabel.trim()">Add</button>
             </form>
@@ -440,6 +533,19 @@ async function onLabelHoldout() {
   background: var(--vmlb-accent-soft); font-size: var(--vmlb-font-size-sm);
 }
 
+.vmlb-guide-show { margin: 0 0 var(--vmlb-space-sm); }
+.vmlb-guide-show-link {
+  min-height: 2.75rem; padding: 0 var(--vmlb-space-2xs);
+  border: 0; background: none; color: var(--vmlb-accent-strong);
+  font: inherit; font-size: var(--vmlb-font-size-sm);
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.vmlb-guide-show-link:focus-visible { outline: 2px solid var(--vmlb-accent); outline-offset: 2px; }
+.vmlb-ai-unavailable { margin: 0 0 var(--vmlb-space-md); font-size: var(--vmlb-font-size-sm); }
+.vmlb-label-notes { margin: 0 0 0.6rem; font-size: var(--vmlb-font-size-xs); }
+.vmlb-label-notes div + div { margin-top: var(--vmlb-space-xs); }
+.vmlb-label-notes dt { font-weight: 600; }
+.vmlb-label-notes dd { margin: 0; color: var(--vmlb-text-muted); }
 .vmlb-new-label { display: flex; gap: 0.35rem; margin-bottom: 0.6rem; }
 .vmlb-new-label input {
   flex: 1; min-width: 0;
