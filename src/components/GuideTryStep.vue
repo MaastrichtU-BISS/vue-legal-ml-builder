@@ -27,7 +27,12 @@ const emit = defineEmits<{
 
 const others = computed(() => (props.suggestion ? props.labels.filter((label) => label !== props.suggestion!.label) : []))
 const count = computed(() => agreementLine(props.agreement))
+const showsCard = computed(() => props.view === 'ready' && !!props.suggestion)
+/** The ready card's rows, held invisibly behind every other state: one
+ * label suggested, the rest offered as other labels. */
+const placeholder = computed(() => ({ label: props.labels[0] ?? '', others: props.labels.slice(1) }))
 
+const root = ref<HTMLElement | null>(null)
 const card = ref<HTMLElement | null>(null)
 /** The student answered from the card: the next suggestion takes focus, so the
  * keyboard flow carries on from item to item. */
@@ -56,15 +61,32 @@ watch(
     if (!id || !refocus) return
     refocus = false
     await nextTick()
+    // Only if focus is still on the card's way out, not somewhere the student moved it.
+    const active = document.activeElement
+    if (active && active !== document.body && !root.value?.contains(active)) return
     card.value?.focus()
   },
 )
 </script>
 
 <template>
-  <div class="vmlb-guide-try">
+  <div ref="root" class="vmlb-guide-try">
     <!-- One box for every state, so "Asking the AI…" and the suggestion take the same room. -->
     <div class="vmlb-guide-suggestion">
+      <!-- Every state but the suggestion: the card's rows, held invisibly, keep its height. -->
+      <div v-if="!showsCard" class="vmlb-guide-suggested vmlb-guide-placeholder" aria-hidden="true">
+        <p class="vmlb-guide-suggested-label"><Icon name="spark" /> The AI suggests <strong>{{ placeholder.label }}</strong></p>
+        <p class="vmlb-guide-reason">&nbsp;<br />&nbsp;</p>
+        <div class="vmlb-guide-try-actions">
+          <span class="vmlb-btn-primary vmlb-guide-target">Accept {{ placeholder.label }}</span>
+          <span class="vmlb-btn-tertiary vmlb-guide-target">Skip</span>
+        </div>
+        <div v-if="placeholder.others.length" class="vmlb-guide-try-others">
+          <p>Not right? Pick your label:</p>
+          <span v-for="label in placeholder.others" :key="label" class="vmlb-btn-secondary vmlb-guide-target">{{ label }}</span>
+        </div>
+      </div>
+
       <p v-if="view === 'holdout'" class="vmlb-guide-try-holdout">
         This item is kept aside to test your model later. You label these yourself; the AI never sees them.
       </p>
@@ -85,7 +107,7 @@ watch(
       <p v-else-if="view === 'answered'" class="vmlb-guide-text">The AI has no suggestion for this item. Label it yourself.</p>
 
       <div
-        v-else-if="view === 'ready' && suggestion"
+        v-else-if="showsCard && suggestion"
         ref="card"
         class="vmlb-guide-suggested"
         tabindex="0"
@@ -116,20 +138,27 @@ watch(
       </div>
     </div>
 
-    <p class="vmlb-guide-count vmlb-num" aria-live="polite">{{ count }}</p>
-    <p v-if="view === 'ready'" class="vmlb-guide-keys">Press <kbd>Enter</kbd> on the suggestion to accept it, <kbd>S</kbd> to skip.</p>
+    <!-- The guide's own live region announces the count; this is what is seen. -->
+    <p class="vmlb-guide-count vmlb-num">{{ count }}</p>
+    <!-- Always there, so the suggestion arriving moves nothing below it. -->
+    <p class="vmlb-guide-keys" :class="{ 'is-hidden': !showsCard }" :aria-hidden="showsCard ? undefined : 'true'">Press <kbd>Enter</kbd> on the suggestion to accept it, <kbd>S</kbd> to skip.</p>
   </div>
 </template>
 
 <style scoped>
 .vmlb-guide-try { display: flex; flex-direction: column; gap: var(--vmlb-space-xs); margin-top: var(--vmlb-space-sm); }
-/* Room for a suggestion in every state, so nothing below moves when it arrives. */
+/* Room for a suggestion in every state, so nothing below moves when it arrives:
+   each state sits in the one grid cell over the card's invisible placeholder. */
 .vmlb-guide-suggestion {
-  min-height: 9rem; padding: var(--vmlb-space-sm) var(--vmlb-space-md);
+  display: grid; min-height: 9rem; padding: var(--vmlb-space-sm) var(--vmlb-space-md);
   border-radius: var(--vmlb-radius-md); background: var(--vmlb-surface); color: var(--vmlb-text);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vmlb-accent) 22%, var(--vmlb-surface));
 }
+.vmlb-guide-suggestion > * { grid-area: 1 / 1; min-width: 0; }
 .vmlb-guide-suggestion p { margin: 0; }
+.vmlb-guide-placeholder { visibility: hidden; pointer-events: none; }
+.vmlb-guide-suggestion > :not(.vmlb-guide-placeholder) { align-self: start; }
+.vmlb-guide-keys.is-hidden { visibility: hidden; }
 .vmlb-guide-text { margin: 0; }
 .vmlb-guide-try-holdout { color: var(--vmlb-text); }
 .vmlb-guide-asking { display: flex; align-items: center; gap: var(--vmlb-space-xs); min-height: 2.75rem; color: var(--vmlb-text-muted); }

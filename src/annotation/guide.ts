@@ -106,17 +106,17 @@ export function agreementLow(agreement: LlmAgreement | null): boolean {
   return agreement.checked >= agreement.min_sample && agreement.rate < agreement.threshold
 }
 
-/** Try it's running count, in the server's own sample size and threshold. */
+/** Try it's running count, in the server's own sample size and threshold.
+ * Without the server's check there are no numbers to give. */
 export function agreementLine(agreement: LlmAgreement | null): string {
-  const checked = agreement?.checked ?? 0
-  const agreed = agreement?.agreed ?? 0
-  const minSample = agreement?.min_sample ?? 0
+  if (!agreement) return 'Each answer counts toward the check.'
+  const { checked, agreed, min_sample: minSample } = agreement
   const left = Math.max(minSample - checked, 0)
   if (left > 0) {
     const more = `${left} more to check before it can label the rest.`
     return checked ? `The AI agreed with you on ${agreed} of ${checked}. ${more}` : `${more[0].toUpperCase()}${more.slice(1)}`
   }
-  const threshold = Math.round((agreement?.threshold ?? 0) * 100)
+  const threshold = Math.round(agreement.threshold * 100)
   return `The AI agreed with you on ${agreed} of ${checked}. It needs to agree at least ${threshold}% of the time before it can label the rest.`
 }
 

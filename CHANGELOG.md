@@ -48,7 +48,8 @@ tagged `vX.Y.Z`.
   "Step 4 of 6 · Agreed X of Y", with Details, as in step 3. The suggestion
   card sits outside the folded part, so Accept stays above the item.
 - `currentAgreement`, `agreementLow` and `agreementLine` are exported, with
-  the types `TryView` and `Disagreement`.
+  the types `TryView` and `Disagreement`. Without the server's check,
+  `agreementLine(null)` reads "Each answer counts toward the check."
 
 ### Changed
 

@@ -3,6 +3,7 @@ import { computed, inject, nextTick, onMounted, ref, watch } from 'vue'
 import {
   GUIDE_STEPS,
   SHOW_TOTAL,
+  agreementLine,
   agreementLow,
   currentAgreement,
   definitionsToFill,
@@ -149,7 +150,22 @@ function folded(): boolean {
   if (!collapsible.value || detailsOpen.value) return false
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(PHONE_QUERY).matches
 }
-const showing = computed(() => (loadState.value === 'ready' && (props.stats || !props.statsLoading) ? 'ready' : loadState.value === 'error' ? 'error' : 'loading'))
+/** With a prompt to read, its version must be known before asking, or the
+ * item would be asked about again once it loads. */
+const promptKnown = computed(() => !props.adapter.getLlmPrompt || prompt.value !== null || !!promptError.value)
+/** The guide has shown its step once. Before then, on the steps the agreement
+ * check decides, it waits for the prompt too: the check is for the prompt
+ * version in use, and the server's may still be an older one's. */
+const settled = ref(false)
+const showing = computed(() => {
+  if (loadState.value === 'error') return 'error'
+  const loaded = loadState.value === 'ready' && (props.stats || !props.statsLoading)
+  const checkKnown = settled.value || !ready.value || promptKnown.value || (step.value !== 'try' && step.value !== 'rest')
+  return loaded && checkKnown ? 'ready' : 'loading'
+})
+watch(showing, (value) => {
+  if (value === 'ready') settled.value = true
+})
 
 const PAGE = 500
 
@@ -358,9 +374,6 @@ const outcomes = ref<Record<string, Exclude<TryView, 'holdout' | 'ready' | 'idle
 const askKey = computed(() =>
   props.currentTaskId ? `${props.currentTaskId}:${inUse.value.promptVersion ?? ''}:${inUse.value.model ?? ''}` : null,
 )
-/** With a prompt to read, its version must be known before asking, or the
- * item would be asked about again once it loads. */
-const promptKnown = computed(() => !props.adapter.getLlmPrompt || prompt.value !== null || !!promptError.value)
 /** Suggestions this guide asked for and the student hasn't answered yet. A
  * reload of what is waiting can be read before a new suggestion is stored, so
  * these are kept beside it rather than lost. */
@@ -378,6 +391,14 @@ const tryView = computed<TryView>(() => {
   return (askKey.value && outcomes.value[askKey.value]) || 'asking'
 })
 const trying = computed(() => showing.value === 'ready' && step.value === 'try' && !improving.value)
+
+/** What the guide's live region says: Show it how's examples, or Try it's running count. */
+const liveCount = computed(() => {
+  if (showing.value !== 'ready') return ''
+  if (step.value === 'show') return `${targets.value.total} of ${SHOW_TOTAL} examples labelled.`
+  if (trying.value) return agreementLine(check.value)
+  return ''
+})
 
 async function askForSuggestion() {
   const key = askKey.value
@@ -424,15 +445,17 @@ watch(step, (value) => emit('step', value), { immediate: true })
 // ---------------------------------------------------------------------------
 
 
-/** The items the AI got wrong in the check that is too low: its corrected
- * suggestions, with each item's text and the label the student gave. */
+/** The items the AI got wrong in the check that is too low. The server counts
+ * every suggestion for the check's model and prompt version on a confirmed
+ * item, whatever its status, so each is compared with the label the student
+ * confirmed. */
 async function loadDisagreements() {
   const forCheck = check.value
   disagreements.value = null
   disagreementsFailed.value = false
   try {
-    const corrected = (await props.adapter.listLlmSuggestions?.(props.datasetId, 'corrected')) ?? []
-    const inCheck = corrected.filter(
+    const all = (await props.adapter.listLlmSuggestions?.(props.datasetId)) ?? []
+    const inCheck = all.filter(
       (s) =>
         (forCheck?.model == null || s.model === forCheck.model) &&
         (forCheck?.prompt_version == null || s.prompt_version === forCheck.prompt_version),
@@ -440,20 +463,24 @@ async function loadDisagreements() {
     const tasks = props.adapter.listAnnotationTasks
       ? new Map((await props.adapter.listAnnotationTasks(props.projectId, { status: 'annotated', datasetId: props.datasetId })).map((t) => [t.id, t]))
       : null
-    disagreements.value = await Promise.all(
-      inCheck.map(async (s): Promise<Disagreement> => {
+    const compared = await Promise.all(
+      inCheck.map(async (s): Promise<Disagreement | null> => {
         const task = tasks?.get(s.task_id)
         if (task) return { id: s.id, text: task.text, yours: task.annotation_label ?? '', ai: s.label }
+        // A suggestion still waiting is on an item not confirmed yet: not in the check.
+        if (s.status === 'pending') return null
         const opened = await props.adapter.getAnnotationAssignment(s.task_id)
         return { id: s.id, text: opened.document.full_text, yours: opened.assignment.document_annotations[0]?.label ?? '', ai: s.label }
       }),
     )
+    disagreements.value = compared.filter((d): d is Disagreement => !!d && !!d.yours && d.yours !== d.ai)
   } catch {
     disagreementsFailed.value = true
   }
 }
 
-watch(improving, (value) => {
+// Not before the guide shows: until the prompt loads, the check may be an older prompt's.
+watch(() => improving.value && showing.value === 'ready', (value) => {
   if (value) void loadDisagreements()
 })
 
@@ -496,11 +523,21 @@ onMounted(load)
 watch(() => props.labels.join('\u0000'), refreshCounts)
 watch(() => props.labelsVersion, async () => {
   await refreshCounts()
+  // A label saved in the item's own controls answers its suggestion too: once
+  // the server's list of what waits no longer has one this guide asked for,
+  // it is dropped. One asked for during the reload is kept.
+  const before = new Set(asked.value.map((s) => s.id))
+  const list = llm.suggestions.value
   await llm.refreshProgress(props.datasetId)
+  if (llm.suggestions.value === list) return
+  const onServer = new Set(llm.suggestions.value.map((s) => s.id))
+  asked.value = asked.value.filter((s) => !before.has(s.id) || onServer.has(s.id))
 })
-// Access arriving (a key saved, sending allowed) is when waiting descriptions can be saved.
+// Access arriving (a key saved, sending allowed) is when waiting descriptions
+// can be saved, and when the prompt Try it asks with can be read.
 watch(ready, (value) => {
-  if (value && pendingDescriptions.value) syncDescriptions()
+  if (!value) return
+  if (pendingDescriptions.value || (loadState.value === 'ready' && !prompt.value)) void syncDescriptions()
 })
 // Focus follows a step change, not the first render.
 let shownStep: string | null = null
@@ -543,9 +580,8 @@ watch([stepView, showing], async ([next, state]) => {
         <span v-for="(s, i) in GUIDE_STEPS" :key="s.key" :class="{ 'is-filled': i <= current }" />
       </div>
     </div>
-    <p v-if="showing === 'ready' && step === 'show'" class="vmlb-guide-sr" aria-live="polite">
-      {{ targets.total }} of {{ SHOW_TOTAL }} examples labelled.
-    </p>
+    <!-- One polite live region for the whole guide, mounted from the start, so a count put in it is announced. -->
+    <p class="vmlb-guide-sr" aria-live="polite">{{ liveCount }}</p>
 
     <div id="vmlb-guide-body" class="vmlb-guide-body">
       <div class="vmlb-guide-head">

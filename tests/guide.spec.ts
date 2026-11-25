@@ -258,6 +258,10 @@ describe('Try it: the agreement check', () => {
       'The AI agreed with you on 21 of 30. It needs to agree at least 80% of the time before it can label the rest.',
     )
   })
+
+  it('gives no numbers without the server’s check', () => {
+    expect(agreementLine(null)).toBe('Each answer counts toward the check.')
+  })
 })
 
 describe('Try it: the item’s waiting suggestion', () => {
