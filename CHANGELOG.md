@@ -43,7 +43,8 @@ tagged `vX.Y.Z`.
   one-line "Show guide" link. Without storage the guide shows. A Dataset that
   already has LLM suggestions, or a Model-led loop running, with nothing
   stored, opens on today's panels.
-- `AnnotationWorkspace` prop `guide?: 'auto' | 'hidden'` (default `auto`):
+- `AnnotationWorkspace` prop `guide?: 'auto' | 'hidden' | 'shown'` (default `auto`;
+  `shown` opens the guide for one visit whatever was stored):
   `hidden` opens the screen without the guide for one visit, for a host's
   "Label by hand".
 - Optional `MLAdapter.setDatasetLabels(datasetId, labels)`, implemented by the

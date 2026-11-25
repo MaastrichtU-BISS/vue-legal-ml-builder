@@ -53,7 +53,9 @@ const props = withDefaults(defineProps<{
   /** The "Label with AI help" guide. `auto` shows it unless the student hid it
    * for this Dataset; `hidden` opens the screen without it for this visit
    * (a host's "Label by hand"). */
-  guide?: 'auto' | 'hidden'
+  /** `shown` opens the guide for this visit whatever was stored (a host's
+   * "Label with AI help"); `hidden` keeps it closed for this visit. */
+  guide?: 'auto' | 'hidden' | 'shown'
 }>(), { hideAnnotation: undefined, taskType: 'classification', rowCount: 0, unlabelledRows: 0, guide: 'auto' })
 
 const injectedAdapter = inject<MLAdapter | null>('vmlb:adapter', null)
@@ -145,7 +147,7 @@ watch(
   () => props.datasetId,
   (id) => {
     guidePreference.value = id ? readGuidePreference(id) : null
-    guideOpen.value = guidePreference.value !== 'hidden' && props.guide !== 'hidden'
+    guideOpen.value = props.guide === 'shown' || (guidePreference.value !== 'hidden' && props.guide !== 'hidden')
     labelDescriptions.value = (id && readPendingDescriptions(id)) || {}
   },
   { immediate: true },
@@ -155,7 +157,7 @@ watch(
  * Model-led loop running, opens on today's panels so their controls stay; one
  * without keeps the guide, remembered from now on. */
 function onGuideLoaded({ hasSuggestions, loopRunning }: { hasSuggestions: boolean; loopRunning: boolean }) {
-  if (guidePreference.value !== null || !props.datasetId) return
+  if (guidePreference.value !== null || props.guide === 'shown' || !props.datasetId) return
   if (hasSuggestions || loopRunning) {
     guideOpen.value = false
     return

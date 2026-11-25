@@ -217,7 +217,9 @@ let rerun = false
  * the next time the prompt loads. */
 async function syncDescriptions(): Promise<void> {
   emit('descriptions', descriptions.value)
-  if (!hasAccess.value || !props.adapter.getLlmPrompt) return
+  // Saving the prompt needs access and the Project's go-ahead to send text
+  // (step 2); until then the sentences wait, and the `ready` watcher saves them.
+  if (!ready.value || !props.adapter.getLlmPrompt) return
   if (syncing) {
     rerun = true
     return

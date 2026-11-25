@@ -740,3 +740,32 @@ describe('a label in use arriving late matches what was typed ignoring case', ()
     wrapper.unmount()
   })
 })
+
+describe('saving the sentences waits for the go-ahead to send text (BAIGLE #199 review)', () => {
+  it('keeps the sentences, with no prompt save and no alert, until the Project allows sending', async () => {
+    const updateLlmPrompt = vi.fn()
+    const getLlmStatus = vi.fn().mockResolvedValue(llmStatus({ acknowledged: false }))
+    const { wrapper } = await mounted({ overrides: { getLlmStatus, updateLlmPrompt } })
+    await fillLabels(wrapper, [['Civil', 'Disputes between private parties.'], ['Criminal', 'Offences the state prosecutes.']])
+
+    await click(wrapper, 'Save labels')
+
+    expect(updateLlmPrompt).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+    expect(JSON.parse(localStorage.getItem('vmlb-guide-descriptions:ds-1') ?? '{}')).toMatchObject({ Civil: 'Disputes between private parties.' })
+    wrapper.unmount()
+  })
+})
+
+describe("a host's guide: 'shown'", () => {
+  it('opens the guide for this visit even when it was hidden before', async () => {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '1')
+    const { wrapper } = await mounted({ props: { guide: 'shown' } })
+
+    expect(guide(wrapper).exists()).toBe(true)
+    // The stored choice is the student's; one visit doesn't change it.
+    expect(localStorage.getItem('vmlb-guide-hidden:ds-1')).toBe('1')
+    wrapper.unmount()
+  })
+})
