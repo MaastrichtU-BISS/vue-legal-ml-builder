@@ -72,7 +72,8 @@ const view = computed(() => {
   if (status === 'failed') return 'failed'
   if (labelsReady.value && (!wantMore.value || props.labellable === 0)) return 'done'
   // What is left already has the AI's answer: only the student can label it.
-  if (props.labellable === 0) return 'left'
+  // An estimate covering no items says the same, if the lists changed meanwhile.
+  if (props.labellable === 0 || props.estimate?.tasks === 0) return 'left'
   return 'choose'
 })
 
@@ -201,8 +202,8 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
 
     <template v-else-if="view === 'done'">
       <p class="vmlb-guide-text">
-        The AI labelled {{ count(aiLabels, 'item') }}. They aren't labels yet: accept them to make them yours, or check
-        some first.
+        <template v-if="aiLabels === 1">The AI labelled 1 item. It isn't a label yet: accept it to make it yours, or check it first.</template>
+        <template v-else>The AI labelled {{ count(aiLabels, 'item') }}. They aren't labels yet: accept them to make them yours, or check some first.</template>
       </p>
       <div class="vmlb-guide-actions">
         <button type="button" class="vmlb-btn-primary vmlb-guide-target" :disabled="busy" :aria-busy="busy ? 'true' : undefined" @click="emit('accept')">

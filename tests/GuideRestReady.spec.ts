@@ -653,6 +653,50 @@ describe('step 6, Ready to train', () => {
     wrapper.unmount()
   })
 
+  it('on a return visit, opens on Ready to train without passing through Do the rest or taking focus', async () => {
+    const rejected = [llmSuggestion({ id: 'r0', task_id: 'p0', status: 'rejected' }), llmSuggestion({ id: 'r1', task_id: 'p1', status: 'rejected' })]
+    const seen: string[] = []
+    const observer = new MutationObserver(() => {
+      const title = document.querySelector('.vmlb-guide-step-title')?.textContent?.trim()
+      if (title && seen[seen.length - 1] !== title) seen.push(title)
+    })
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+    const { wrapper } = await mounted({
+      stats: { total: 14, annotated: 12, percentage: 86 },
+      overrides: { listLlmSuggestions: suggestionList(() => rejected), listAnnotationTasks: vi.fn().mockResolvedValue([pendingTask(0), pendingTask(1)]) },
+    })
+    observer.disconnect()
+
+    expect(currentStep(wrapper).text()).toContain('Ready to train')
+    expect(seen).not.toContain('Let the AI label the rest')
+    expect(document.activeElement?.tagName).not.toBe('H3')
+    wrapper.unmount()
+  })
+
+  it('does not offer Ready to train while the AI labels wait, so they can still be accepted', async () => {
+    const { wrapper } = await mounted({
+      counts: { Civil: 6, Criminal: 6 },
+      overrides: { listLlmSuggestions: suggestionList(() => Array.from({ length: 28 }, (_, i) => aiLabel(i))) },
+    })
+
+    expect(button(wrapper, 'Accept 28 AI labels')).toBeDefined()
+    expect(button(wrapper, 'Go to Ready to train')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('says it, not they, when the AI labelled one item', async () => {
+    const { wrapper } = await mounted({
+      stats: { total: 13, annotated: 12, percentage: 92 },
+      overrides: {
+        listLlmSuggestions: suggestionList(() => [aiLabel(0)]),
+        listAnnotationTasks: vi.fn().mockResolvedValue([pendingTask(0)]),
+      },
+    })
+
+    expect(guide(wrapper).text()).toContain("The AI labelled 1 item. It isn't a label yet: accept it to make it yours, or check it first.")
+    wrapper.unmount()
+  })
+
   it('moves focus to Ready to train once the AI labels are accepted and nothing is left', async () => {
     let accepted = false
     const getNextAnnotationTask = vi.fn(async () =>

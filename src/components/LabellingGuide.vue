@@ -183,10 +183,18 @@ const progress = computed<GuideProgress>(() => ({
 /** Ready to train, chosen in Do the rest for this visit: every label has
  * enough examples, and the rest can wait. Never stored. */
 const readyChosen = ref(false)
-const canFinish = computed(() => readyToTrain(progress.value))
+/** Ready to train can be chosen: every label has enough examples and none of
+ * the AI's labels waits, since Ready to train offers no way to accept them. */
+const canFinish = computed(() => readyToTrain(progress.value) && aiLabels.value.length === 0)
+const derivedStep = computed<GuideStepKey>(() => guideStep(progress.value))
 const step = computed<GuideStepKey>(() => {
-  const derived = guideStep(progress.value)
+  const derived = derivedStep.value
   return derived === 'rest' && readyChosen.value && canFinish.value ? 'ready' : derived
+})
+// The choice holds only while the guide stays on Do the rest or Ready to train:
+// sent back to Connect AI, say, the student comes back through Do the rest.
+watch(derivedStep, (value) => {
+  if (value !== 'rest' && value !== 'ready') readyChosen.value = false
 })
 /** The guide would be on Do the rest if the AI could still label something:
  * what is left decides between Do the rest and Ready to train. */
@@ -218,12 +226,18 @@ function folded(): boolean {
  * check decides, it waits for the prompt too: the check is for the prompt
  * version in use, and the server's may still be an older one's. */
 const settled = ref(false)
+/** What is left has been read once (or the read failed): until then Do the
+ * rest and Ready to train can't be told apart. */
+const restRead = ref(false)
 const showing = computed(() => {
   if (loadState.value === 'error') return 'error'
   const loaded = loadState.value === 'ready' && (props.stats || !props.statsLoading)
   const checkKnown =
     settled.value || !ready.value || promptKnown.value || (step.value !== 'try' && step.value !== 'rest' && !restCandidate.value)
-  return loaded && checkKnown ? 'ready' : 'loading'
+  // On first load, a Dataset that may be on Do the rest waits for what is left,
+  // so it never shows Do the rest and then jumps to Ready to train.
+  const restKnown = settled.value || !restCandidate.value || !props.adapter.listAnnotationTasks || restRead.value
+  return loaded && checkKnown && restKnown ? 'ready' : 'loading'
 })
 watch(showing, (value) => {
   if (value === 'ready') settled.value = true
@@ -633,6 +647,8 @@ async function loadRest(): Promise<void> {
     restSuggestions.value = all
   } catch {
     // The last read stands until the next one.
+  } finally {
+    if (asking === restAsked) restRead.value = true
   }
 }
 
