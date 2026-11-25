@@ -756,6 +756,27 @@ describe('saving the sentences waits for the go-ahead to send text (BAIGLE #199 
     expect(JSON.parse(localStorage.getItem('vmlb-guide-descriptions:ds-1') ?? '{}')).toMatchObject({ Civil: 'Disputes between private parties.' })
     wrapper.unmount()
   })
+
+  it('saves the waiting sentences once, when the student allows sending in step 2', async () => {
+    const updateLlmPrompt = vi.fn(async (_id: string, edit: { template: string; definitions: Record<string, string> }) => ({ version: 1, ...edit }))
+    const getLlmStatus = vi.fn().mockResolvedValue(llmStatus({ acknowledged: false }))
+    const { wrapper } = await mounted({ overrides: { getLlmStatus, updateLlmPrompt } })
+    await fillLabels(wrapper, [['Civil', 'Disputes between private parties.'], ['Criminal', 'Offences the state prosecutes.']])
+    await click(wrapper, 'Save labels')
+    expect(updateLlmPrompt).not.toHaveBeenCalled()
+
+    getLlmStatus.mockResolvedValue(llmStatus({ acknowledged: true }))
+    await click(wrapper, 'Allow sending to openrouter.ai')
+    await flushPromises()
+
+    expect(updateLlmPrompt).toHaveBeenCalledTimes(1)
+    expect(updateLlmPrompt.mock.calls[0][1].definitions).toEqual({
+      Civil: 'Disputes between private parties.',
+      Criminal: 'Offences the state prosecutes.',
+    })
+    expect(localStorage.getItem('vmlb-guide-descriptions:ds-1')).toBeNull()
+    wrapper.unmount()
+  })
 })
 
 describe("a host's guide: 'shown'", () => {

@@ -51,10 +51,9 @@ const props = withDefaults(defineProps<{
    * annotation, e.g. Legal Blocks). Defaults to the plugin's `hideAnnotation`. */
   hideAnnotation?: boolean
   /** The "Label with AI help" guide. `auto` shows it unless the student hid it
-   * for this Dataset; `hidden` opens the screen without it for this visit
-   * (a host's "Label by hand"). */
-  /** `shown` opens the guide for this visit whatever was stored (a host's
-   * "Label with AI help"); `hidden` keeps it closed for this visit. */
+   * for this Dataset; `hidden` opens the screen without it for this visit (a
+   * host's "Label by hand"); `shown` opens it for this visit whatever was stored
+   * (a host's "Label with AI help"). Neither `hidden` nor `shown` is stored. */
   guide?: 'auto' | 'hidden' | 'shown'
 }>(), { hideAnnotation: undefined, taskType: 'classification', rowCount: 0, unlabelledRows: 0, guide: 'auto' })
 
