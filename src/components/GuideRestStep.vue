@@ -68,10 +68,12 @@ const unlabelled = computed(() =>
  * finished job's (its one item may be the one on screen). Try it's alone don't
  * count, so a student arriving from Try it still chooses the items and sees the
  * cost first, unless there is nothing left for the AI to label. */
+/** A finished job made labels: its one item may be the one on screen. */
+const jobMade = computed(() => props.job?.status === 'completed' && (props.job.created ?? props.job.done) > 0)
 const labelsReady = computed(
   () =>
     props.aiLabels > 0 &&
-    (nothingMore.value || props.job?.status === 'completed' || props.aiLabels - (props.tryWaiting ?? 0) > 0),
+    (nothingMore.value || jobMade.value || props.aiLabels - (props.tryWaiting ?? 0) > 0),
 )
 const view = computed(() => {
   const status = props.job?.status

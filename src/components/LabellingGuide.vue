@@ -813,7 +813,12 @@ const lastKnown: { model: string | null; promptVersion: number | null } = { mode
 watch(
   () => [inUse.value.model, inUse.value.promptVersion, llm.job.value?.status] as const,
   ([model, promptVersion, jobStatus]) => {
-    if (jobStatus === 'queued' || jobStatus === 'running') return
+    if (jobStatus === 'queued' || jobStatus === 'running') {
+      // Only the first known: a change seen while the job runs is compared once it ends.
+      if (lastKnown.model === null) lastKnown.model = model
+      if (lastKnown.promptVersion === null) lastKnown.promptVersion = promptVersion
+      return
+    }
     const changed =
       (model !== null && lastKnown.model !== null && model !== lastKnown.model) ||
       (promptVersion !== null && lastKnown.promptVersion !== null && promptVersion !== lastKnown.promptVersion)

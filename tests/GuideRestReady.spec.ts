@@ -1015,6 +1015,29 @@ describe('Do the rest follow-ups (BAIGLE #213)', () => {
     wrapper.unmount()
   })
 
+  it("doesn't count Try it's label as the work of a finished job that made none", async () => {
+    const tried = llmSuggestion({ id: 'tried', task_id: item.id, label: 'Civil' })
+    const { wrapper } = await mounted({
+      overrides: {
+        listAnnotationTasks: vi.fn().mockResolvedValue([item, ...Array.from({ length: 27 }, (_, i) => pendingTask(i + 1))]),
+        listLlmSuggestions: vi.fn().mockResolvedValue([tried]),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 1 })),
+        startLlmAnnotation: vi.fn().mockResolvedValue({ job_id: 'job-1', estimate: estimate({ tasks: 1 }) }),
+        getLlmJob: vi.fn().mockResolvedValue({ status: 'completed', total: 1, done: 1, created: 0, invalid: 1 }),
+      },
+    })
+
+    await wrapper.find('input[type="radio"][value="next"]').setValue(true)
+    await wrapper.find('input[type="number"]').setValue(1)
+    await flushPromises()
+    await click(wrapper, 'Work out the cost')
+    await click(wrapper, 'Start labelling 1 item')
+    await poll()
+
+    expect(button(wrapper, 'Accept 1 AI label')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('drops the old model\'s job when it finishes in the same read that brings the new model', async () => {
     localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
     let phase: 'first' | 'other' = 'first'

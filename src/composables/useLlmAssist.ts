@@ -274,7 +274,8 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
         stale = true
       }
     }, 'Failed to estimate the cost')
-    return !stale
+    // Not only a reply left behind: a clear while a refusal reread the status counts too.
+    return !stale && current()
   }
 
   function clearEstimate() {
