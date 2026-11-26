@@ -811,11 +811,11 @@ watch(() => props.labelsVersion, async () => {
 })
 // Access arriving (a key saved, sending allowed) is when waiting descriptions
 // can be saved, and when the prompt Try it asks with can be read.
-// Access back (a key saved, the go-ahead given, or the allowance replaced by
-// the student's own key): an item the AI couldn't answer while it was missing
-// is asked about again.
+// Access back (a key saved, the go-ahead given, the allowance replaced by the
+// student's own key, or a new key saved after the provider refused the old
+// one): an item the AI couldn't answer while it was missing is asked about again.
 watch(
-  () => ready.value && !budgetExhausted.value,
+  () => ready.value && !budgetExhausted.value && !keyFailure.value,
   (usable) => {
     if (!usable) return
     const kept = Object.entries(outcomes.value).filter(([, outcome]) => outcome !== 'failed')

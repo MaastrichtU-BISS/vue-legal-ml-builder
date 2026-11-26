@@ -10,7 +10,7 @@ const STATUS_CODES = ['no_llm_access', 'acknowledgement_required', 'destination_
 /** The server answered that it doesn't know the job (a 404, or its "Job not found"). */
 function jobNotFound(err: unknown): boolean {
   const failure = err as { status?: number; message?: string } | null
-  return failure?.status === 404 || /not found/i.test(failure?.message ?? '')
+  return failure?.status === 404 || /\bjob not found\b/i.test(failure?.message ?? '')
 }
 
 /** A Dataset's LLM access and suggestions. Nothing is sent to an LLM until the

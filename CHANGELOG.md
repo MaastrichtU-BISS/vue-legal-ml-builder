@@ -95,6 +95,11 @@ tagged `vX.Y.Z`.
   prompt version and model in use**, as Try it does since 0.16.0's council
   fixes. An older version's answer is not offered there, so a label picked on
   the item stays the student's own.
+- **A new key saved after the provider refused the old one asks the AI again**
+  about the item on screen in Try it, instead of showing "The AI didn't
+  answer".
+- **A job left running is forgotten only when the server says the job is not
+  found** (a 404, or "Job not found"), not on another not-found refusal.
 
 ## [0.16.0] - 2026-11-25
 

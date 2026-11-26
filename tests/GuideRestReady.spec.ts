@@ -602,6 +602,39 @@ describe('out of tokens or a failed key: back to Connect AI', () => {
     wrapper.unmount()
   })
 
+  it('asks the AI again about the item on screen once a new key is saved after the provider refused the old one', async () => {
+    const createLlmSuggestions = vi.fn()
+      .mockRejectedValueOnce(refusal('The LLM service rejected the API key.', 'llm_failed'))
+      .mockResolvedValue({ suggestions: [llmSuggestion({ id: 'fresh', task_id: item.id })], skipped: 0, invalid: 0 })
+    const { wrapper } = await mounted({
+      overrides: {
+        getLlmAgreement: vi.fn().mockResolvedValue(llmAgreement({ model: 'mistral-small', prompt_version: 0, checked: 3, agreed: 3, rate: 1 })),
+        createLlmSuggestions,
+      },
+    })
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+
+    await wrapper.find('input[type="password"]').setValue('sk-new')
+    await wrapper.find('form.vmlb-guide-key').trigger('submit')
+    await flushPromises()
+
+    expect(currentStep(wrapper).text()).toContain('Try it')
+    expect(createLlmSuggestions).toHaveBeenCalledTimes(2)
+    expect(guide(wrapper).text()).not.toContain("The AI didn't answer")
+    wrapper.unmount()
+  })
+
+  it('forgets a stored job only when the server says the job is not found, not another not-found refusal', async () => {
+    localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
+    const getLlmJob = vi.fn().mockRejectedValue(new Error('Dataset not found'))
+    const { wrapper } = await mounted({ overrides: { getLlmJob } })
+
+    expect(getLlmJob).toHaveBeenCalled()
+    expect(localStorage.getItem('vmlb-guide-job:ds-1')).toBe('job-1')
+    wrapper.unmount()
+    localStorage.removeItem('vmlb-guide-job:ds-1')
+  })
+
   it('stays in Try it when the AI only failed to answer', async () => {
     const { wrapper } = await mounted({
       overrides: {
