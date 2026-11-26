@@ -3,6 +3,9 @@ import { computed, inject, nextTick, onMounted, ref, watch } from 'vue'
 import {
   GUIDE_STEPS,
   SHOW_TOTAL,
+  agreementLine,
+  agreementLow,
+  currentAgreement,
   definitionsToFill,
   guideStep,
   readPendingDescriptions,
@@ -10,14 +13,19 @@ import {
   stepIndex,
   stepsMet,
   writePendingDescriptions,
+  type Disagreement,
   type GuideProgress,
   type GuideStepKey,
+  type TryView,
 } from '../annotation/guide'
+import { newestFirst, waitingSuggestion } from '../annotation/llmAssist'
 import { useLlmAssist } from '../composables/useLlmAssist'
 import type { AnnotationStats, AnnotationTask, Dataset, Id, LlmAgreement, LlmKeyInput, LlmStatus, LlmSuggestion, MLAdapter } from '../types'
 import GuideConnectStep from './GuideConnectStep.vue'
+import GuideImproveStep from './GuideImproveStep.vue'
 import GuideLabelsStep from './GuideLabelsStep.vue'
 import GuideShowStep from './GuideShowStep.vue'
+import GuideTryStep from './GuideTryStep.vue'
 import LlmAssistPanel from './LlmAssistPanel.vue'
 import Icon from './shared/Icon.vue'
 
@@ -41,6 +49,8 @@ const props = defineProps<{
   currentTaskId?: Id | null
   /** The item on screen is kept aside to test the model. */
   currentHoldout?: boolean
+  /** The workspace is saving a label. */
+  busy?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'hide'): void
@@ -52,6 +62,11 @@ const emit = defineEmits<{
   (e: 'descriptions', descriptions: Record<string, string>): void
   (e: 'suggestions', suggestions: LlmSuggestion[]): void
   (e: 'labelled'): void
+  /** The step on screen, so the workspace leaves Try it's suggestion to the guide. */
+  (e: 'step', step: GuideStepKey): void
+  /** Try it: the student accepted the suggestion, or picked their own label over it. */
+  (e: 'answer', answer: { suggestionId: Id; label?: string }): void
+  (e: 'skip'): void
 }>()
 
 const llm = useLlmAssist(props.adapter, inject<number>('vmlb:pollInterval', 3000))
@@ -94,6 +109,18 @@ const descriptions = computed<Record<string, string>>(() => {
   return { ...defined, ...Object.fromEntries(waiting) }
 })
 
+/** The prompt version and model suggestions come from now. The version is
+ * unknown until the prompt loads. */
+const inUse = computed(() => ({ promptVersion: prompt.value?.version ?? null, model: status.value?.model ?? null }))
+/** The agreement check for the prompt and model in use: a new prompt version
+ * starts it from zero straight away, before the server's first new suggestion. */
+/** With a prompt to read, its version must be known before asking, or the
+ * item would be asked about again once it loads. */
+const promptKnown = computed(() => !props.adapter.getLlmPrompt || prompt.value !== null || !!promptError.value)
+/** No check while the prompt version in use is still loading: the server's
+ * may be an older version's, and a passed one would flash Do the rest. */
+const check = computed(() => (ready.value && !promptKnown.value ? null : currentAgreement(agreement.value, inUse.value)))
+
 const progress = computed<GuideProgress>(() => ({
   labels: props.labels,
   // A shared allowance used up sends the student back to Connect AI.
@@ -102,18 +129,25 @@ const progress = computed<GuideProgress>(() => ({
   confirmedPerLabel: props.labels.length >= 2 ? perLabel.value : null,
   confirmedTotal: confirmedTotal.value,
   pending: pending.value,
-  agreement: agreement.value,
+  agreement: check.value,
 }))
 const step = computed<GuideStepKey>(() => guideStep(progress.value))
 const met = computed(() => stepsMet(progress.value))
 const current = computed(() => stepIndex(step.value))
 const currentStep = computed(() => GUIDE_STEPS[current.value])
 const targets = computed(() => showTargets(progress.value))
+/** Try it, chosen for this visit over improving the descriptions. Never
+ * unlocks bulk accept: only the server's check moves the guide on. */
+const keepGoing = ref(false)
+/** Try it's improving state: the full sample checked, the agreement too low. */
+const improving = computed(() => step.value === 'try' && agreementLow(check.value) && !keepGoing.value)
+/** The step as shown: Try it and its improving state each take focus when they appear. */
+const stepView = computed(() => (improving.value ? 'improve' : step.value))
 /** Sending allowed in this visit: Show it how opens with the hand-off line. */
 const justConnected = ref(false)
 /** Phones, in Show it how: the panel folds to one line until Details opens it. */
 const detailsOpen = ref(false)
-const collapsible = computed(() => step.value === 'show')
+const collapsible = computed(() => step.value === 'show' || (step.value === 'try' && !improving.value))
 /** The width at which the guide's styles fold Show it how (see the media query below). */
 const PHONE_QUERY = '(max-width: 640px)'
 /** The step's body is folded away on a phone, so its heading can't take focus. */
@@ -121,7 +155,19 @@ function folded(): boolean {
   if (!collapsible.value || detailsOpen.value) return false
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(PHONE_QUERY).matches
 }
-const showing = computed(() => (loadState.value === 'ready' && (props.stats || !props.statsLoading) ? 'ready' : loadState.value === 'error' ? 'error' : 'loading'))
+/** The guide has shown its step once. Before then, on the steps the agreement
+ * check decides, it waits for the prompt too: the check is for the prompt
+ * version in use, and the server's may still be an older one's. */
+const settled = ref(false)
+const showing = computed(() => {
+  if (loadState.value === 'error') return 'error'
+  const loaded = loadState.value === 'ready' && (props.stats || !props.statsLoading)
+  const checkKnown = settled.value || !ready.value || promptKnown.value || (step.value !== 'try' && step.value !== 'rest')
+  return loaded && checkKnown ? 'ready' : 'loading'
+})
+watch(showing, (value) => {
+  if (value === 'ready') settled.value = true
+})
 
 const PAGE = 500
 
@@ -314,6 +360,183 @@ async function allowSending() {
   return { code: llm.errorCode.value }
 }
 
+// ---------------------------------------------------------------------------
+// Step 4, Try it: one suggestion at a time for the item on screen.
+// ---------------------------------------------------------------------------
+
+// Try it's improving state, declared first: asking waits for its save.
+const disagreements = ref<Disagreement[] | null>(null)
+const disagreementsFailed = ref(false)
+const improveSaving = ref(false)
+const improveError = ref<string | null>(null)
+
+/** What happened to each request, by item, prompt version and model, so an
+ * item is asked about once per prompt version. */
+const outcomes = ref<Record<string, Exclude<TryView, 'holdout' | 'ready' | 'idle'>>>({})
+const askKey = computed(() =>
+  props.currentTaskId ? `${props.currentTaskId}:${inUse.value.promptVersion ?? ''}:${inUse.value.model ?? ''}` : null,
+)
+/** Suggestions this guide asked for and the student hasn't answered yet. A
+ * reload of what is waiting can be read before a new suggestion is stored, so
+ * these are kept beside it rather than lost. */
+const asked = ref<LlmSuggestion[]>([])
+const waiting = computed(() =>
+  newestFirst([...asked.value, ...llm.suggestions.value.filter((s) => !asked.value.some((a) => a.id === s.id))]),
+)
+/** What waits from the prompt version and model in use. Nothing while the
+ * prompt version is still loading: an older version's suggestion would match. */
+const waitingInUse = computed(() =>
+  ready.value && !promptKnown.value
+    ? []
+    : waiting.value.filter(
+        (s) =>
+          (inUse.value.promptVersion === null || s.prompt_version >= inUse.value.promptVersion) &&
+          (!inUse.value.model || s.model === inUse.value.model),
+      ),
+)
+const trySuggestion = computed(() =>
+  props.currentTaskId ? waitingSuggestion(waitingInUse.value, props.currentTaskId, inUse.value) : null,
+)
+const tryView = computed<TryView>(() => {
+  if (props.currentHoldout) return 'holdout'
+  if (!props.currentTaskId) return 'idle'
+  if (trySuggestion.value) return 'ready'
+  return (askKey.value && outcomes.value[askKey.value]) || 'asking'
+})
+const trying = computed(() => showing.value === 'ready' && step.value === 'try' && !improving.value)
+
+/** What the guide's live region says: Show it how's examples, or Try it's running count. */
+const liveCount = computed(() => {
+  if (showing.value !== 'ready') return ''
+  if (step.value === 'show') return `${targets.value.total} of ${SHOW_TOTAL} examples labelled.`
+  if (trying.value) return agreementLine(check.value)
+  return ''
+})
+
+async function askForSuggestion() {
+  const key = askKey.value
+  const taskId = props.currentTaskId
+  if (!trying.value || !ready.value || !promptKnown.value || improveSaving.value || props.currentHoldout || !key || !taskId) return
+  if (trySuggestion.value || outcomes.value[key] || !props.adapter.createLlmSuggestions) return
+  outcomes.value = { ...outcomes.value, [key]: 'asking' }
+  const batch = await llm.suggestOne(props.datasetId, taskId)
+  let outcome: (typeof outcomes.value)[string] = 'answered'
+  if (batch) asked.value = [...asked.value, ...batch.suggestions.filter((s) => s.status === 'pending')]
+  if (!batch) outcome = 'failed'
+  else if (!batch.suggestions.length && batch.invalid) outcome = 'invalid'
+  // Already asked with this prompt and model: what is waiting is read again.
+  else if (!batch.suggestions.length) await llm.refreshProgress(props.datasetId)
+  outcomes.value = { ...outcomes.value, [key]: outcome }
+}
+
+function retrySuggestion() {
+  if (!askKey.value) return
+  const { [askKey.value]: _failed, ...rest } = outcomes.value
+  outcomes.value = rest
+  void askForSuggestion()
+}
+
+/** Accept, or another label picked: the workspace saves it. */
+function answer(suggestionId: Id, label?: string) {
+  // Kept until the server no longer lists it as waiting (the labelsVersion
+  // reload below), so a failed save leaves the suggestion there to answer.
+  emit('answer', label === undefined ? { suggestionId } : { suggestionId, label })
+}
+
+// The save of new descriptions comes first: its new prompt version is the one to ask with.
+watch([trying, askKey, ready, promptKnown, () => props.currentHoldout, () => !!trySuggestion.value, () => improveSaving.value], () => {
+  void askForSuggestion()
+})
+// While Try it shows, the guide says what waits, newest first, so the
+// workspace saves a label chosen in the item over the current suggestion. Only
+// the prompt version and model in use: an older version's suggestion is not
+// the one Try it asks about, so a label picked on the item stays the student's own.
+watch([() => step.value === 'try', waitingInUse], ([onTry, list]) => {
+  if (onTry) emit('suggestions', list)
+})
+watch(step, (value) => emit('step', value), { immediate: true })
+// Try it opens folded on a phone, so Accept sits above the fold, even when
+// Show it how was unfolded for its hand-off line.
+watch(step, (value, previous) => {
+  if (value === 'try' && previous !== 'try') detailsOpen.value = false
+})
+
+// ---------------------------------------------------------------------------
+// Try it's improving state.
+// ---------------------------------------------------------------------------
+
+
+/** The items the AI got wrong in the check that is too low. The server counts
+ * every suggestion for the check's model and prompt version on a confirmed
+ * item, whatever its status, so each is compared with the label the student
+ * confirmed. */
+let disagreementsAsked = 0
+async function loadDisagreements() {
+  const forCheck = check.value
+  const asking = ++disagreementsAsked
+  disagreements.value = null
+  disagreementsFailed.value = false
+  try {
+    const all = (await props.adapter.listLlmSuggestions?.(props.datasetId)) ?? []
+    const inCheck = all.filter(
+      (s) =>
+        (forCheck?.model == null || s.model === forCheck.model) &&
+        (forCheck?.prompt_version == null || s.prompt_version === forCheck.prompt_version),
+    )
+    const tasks = props.adapter.listAnnotationTasks
+      ? new Map((await props.adapter.listAnnotationTasks(props.projectId, { status: 'annotated', datasetId: props.datasetId })).map((t) => [t.id, t]))
+      : null
+    const compared = await Promise.all(
+      inCheck.map(async (s): Promise<Disagreement | null> => {
+        const task = tasks?.get(s.task_id)
+        if (task) return { id: s.id, text: task.text, yours: task.annotation_label ?? '', ai: s.label }
+        // A suggestion still waiting is on an item not confirmed yet: not in the check.
+        // With the list of labelled items, one missing from it isn't confirmed either.
+        if (s.status === 'pending' || tasks) return null
+        const opened = await props.adapter.getAnnotationAssignment(s.task_id)
+        return { id: s.id, text: opened.document.full_text, yours: opened.assignment.document_annotations[0]?.label ?? '', ai: s.label }
+      }),
+    )
+    // An older load finishing last must not replace a newer one.
+    if (asking !== disagreementsAsked) return
+    disagreements.value = compared.filter((d): d is Disagreement => !!d && !!d.yours && d.yours !== d.ai)
+  } catch {
+    if (asking === disagreementsAsked) disagreementsFailed.value = true
+  }
+}
+
+// Not before the guide shows: until the prompt loads, the check may be an older prompt's.
+watch(() => improving.value && showing.value === 'ready', (value) => {
+  if (value) void loadDisagreements()
+})
+
+/** A new prompt version with the template as it is and the new descriptions.
+ * The check starts again for it, so the guide returns to Try it. */
+async function saveDescriptions(definitions: Record<string, string>) {
+  const datasetId = props.datasetId
+  improveSaving.value = true
+  improveError.value = null
+  try {
+    if (!prompt.value) await llm.loadPrompt(datasetId)
+    const loaded = prompt.value
+    if (!loaded || !props.adapter.updateLlmPrompt) {
+      improveError.value = promptError.value ?? "Couldn't load your prompt. Try again."
+      return
+    }
+    await llm.savePrompt(datasetId, { template: loaded.template, definitions })
+    if (promptError.value) {
+      improveError.value = promptError.value
+      return
+    }
+    keepGoing.value = false
+    // The new descriptions are the prompt's now; none still wait to be saved.
+    if (pendingDescriptions.value) clearPending()
+    emit('descriptions', descriptions.value)
+  } finally {
+    improveSaving.value = false
+  }
+}
+
 /** Today's panel, inside the step, keeps the guide's step up to date. */
 function onPanelState(state: { status: LlmStatus | null; agreement: LlmAgreement | null }) {
   if (state.status) status.value = state.status
@@ -326,15 +549,38 @@ onMounted(load)
 watch(() => props.labels.join('\u0000'), refreshCounts)
 watch(() => props.labelsVersion, async () => {
   await refreshCounts()
+  // A label saved in the item's own controls answers its suggestion too: once
+  // the server's list of what waits no longer has one this guide asked for,
+  // it is dropped. One asked for during the reload is kept.
+  const before = new Set(asked.value.map((s) => s.id))
+  const list = llm.suggestions.value
   await llm.refreshProgress(props.datasetId)
+  if (llm.suggestions.value === list) return
+  const onServer = new Set(llm.suggestions.value.map((s) => s.id))
+  asked.value = asked.value.filter((s) => !before.has(s.id) || onServer.has(s.id))
 })
-// Access arriving (a key saved, sending allowed) is when waiting descriptions can be saved.
+// Access arriving (a key saved, sending allowed) is when waiting descriptions
+// can be saved, and when the prompt Try it asks with can be read.
+// Access back (a key saved, the go-ahead given, or the allowance replaced by
+// the student's own key): an item the AI couldn't answer while it was missing
+// is asked about again.
+watch(
+  () => ready.value && !budgetExhausted.value,
+  (usable) => {
+    if (!usable) return
+    const kept = Object.entries(outcomes.value).filter(([, outcome]) => outcome !== 'failed')
+    if (kept.length === Object.keys(outcomes.value).length) return
+    outcomes.value = Object.fromEntries(kept)
+    void askForSuggestion()
+  },
+)
 watch(ready, (value) => {
-  if (value && pendingDescriptions.value) syncDescriptions()
+  if (!value) return
+  if (pendingDescriptions.value || (loadState.value === 'ready' && !prompt.value)) void syncDescriptions()
 })
 // Focus follows a step change, not the first render.
-let shownStep: GuideStepKey | null = null
-watch([step, showing], async ([next, state]) => {
+let shownStep: string | null = null
+watch([stepView, showing], async ([next, state]) => {
   if (state !== 'ready') return
   const previous = shownStep
   shownStep = next
@@ -356,7 +602,8 @@ watch([step, showing], async ([next, state]) => {
     <!-- Phones in Show it how: one line, the six-segment bar and Details. -->
     <div v-if="showing === 'ready' && collapsible" class="vmlb-guide-folded">
       <div class="vmlb-guide-folded-line">
-        <p>Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <span class="vmlb-num">{{ targets.total }} of {{ SHOW_TOTAL }} examples</span></p>
+        <p v-if="step === 'try'">Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <span class="vmlb-num">Agreed {{ check?.agreed ?? 0 }} of {{ check?.checked ?? 0 }}</span></p>
+        <p v-else>Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <span class="vmlb-num">{{ targets.total }} of {{ SHOW_TOTAL }} examples</span></p>
         <button
           ref="detailsToggle"
           type="button"
@@ -372,9 +619,8 @@ watch([step, showing], async ([next, state]) => {
         <span v-for="(s, i) in GUIDE_STEPS" :key="s.key" :class="{ 'is-filled': i <= current }" />
       </div>
     </div>
-    <p v-if="showing === 'ready' && step === 'show'" class="vmlb-guide-sr" aria-live="polite">
-      {{ targets.total }} of {{ SHOW_TOTAL }} examples labelled.
-    </p>
+    <!-- One polite live region for the whole guide, mounted from the start, so a count put in it is announced. -->
+    <p class="vmlb-guide-sr" aria-live="polite">{{ liveCount }}</p>
 
     <div id="vmlb-guide-body" class="vmlb-guide-body">
       <div class="vmlb-guide-head">
@@ -430,8 +676,8 @@ watch([step, showing], async ([next, state]) => {
         </div>
 
         <div class="vmlb-guide-step">
-          <h3 ref="heading" class="vmlb-guide-step-title" tabindex="-1">{{ currentStep.title }}</h3>
-          <p v-if="currentStep.time && !(step === 'show' && justConnected)" class="vmlb-guide-time">{{ currentStep.time }}</p>
+          <h3 ref="heading" class="vmlb-guide-step-title" tabindex="-1">{{ improving ? 'Make your descriptions clearer' : currentStep.title }}</h3>
+          <p v-if="currentStep.time && !improving && !(step === 'show' && justConnected)" class="vmlb-guide-time">{{ currentStep.time }}</p>
 
           <GuideLabelsStep
             v-if="step === 'labels' && adapter.setDatasetLabels"
@@ -459,8 +705,24 @@ watch([step, showing], async ([next, state]) => {
             :holdout="!!currentHoldout"
             :just-connected="justConnected"
           />
-          <!-- Temporary (BAIGLE #193): steps 4–6 show today's AI controls under the
-               step title until #195–#196 give each step its own words and controls. -->
+          <GuideImproveStep
+            v-else-if="step === 'try' && improving && check"
+            :labels="labels"
+            :agreement="check"
+            :disagreements="disagreements"
+            :disagreements-failed="disagreementsFailed"
+            :descriptions="descriptions"
+            :saving="improveSaving"
+            :error="improveError"
+            @save="saveDescriptions"
+            @keep-going="keepGoing = true"
+          />
+          <p v-else-if="step === 'try'" class="vmlb-guide-text">
+            Check the AI against your own labels. Accept its label when it matches yours, or pick your own. Each answer
+            counts toward the check.
+          </p>
+          <!-- Temporary (BAIGLE #193): steps 5–6 show today's AI controls under the
+               step title until #196 gives each step its own words and controls. -->
           <LlmAssistPanel
             v-else
             embedded
@@ -477,6 +739,20 @@ watch([step, showing], async ([next, state]) => {
         </div>
       </template>
     </div>
+
+    <!-- Outside the foldable body: on a phone the suggestion stays above the item. -->
+    <GuideTryStep
+      v-if="trying"
+      :labels="labels"
+      :view="tryView"
+      :suggestion="trySuggestion"
+      :agreement="check"
+      :busy="!!busy"
+      @accept="answer($event.id)"
+      @correct="answer($event.suggestion.id, $event.label)"
+      @retry="retrySuggestion"
+      @skip="emit('skip')"
+    />
   </section>
 </template>
 

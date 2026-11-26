@@ -61,6 +61,65 @@ export function agreementPassed(agreement: LlmAgreement | null): boolean {
   return agreement.checked >= agreement.min_sample && agreement.rate >= agreement.threshold
 }
 
+/** The check as it stands for the prompt version and model in use. The server
+ * reports the check for its latest suggestion, so straight after a new prompt
+ * version (or model) it still describes the old one until the first new
+ * suggestion: that check starts from zero, as the server will count it. */
+export function currentAgreement(
+  agreement: LlmAgreement | null,
+  inUse: { promptVersion: number | null; model: string | null },
+): LlmAgreement | null {
+  if (!agreement) return null
+  const newerPrompt =
+    inUse.promptVersion !== null && agreement.prompt_version !== null && inUse.promptVersion > agreement.prompt_version
+  const otherModel = !!inUse.model && !!agreement.model && inUse.model !== agreement.model
+  if (!newerPrompt && !otherModel) return agreement
+  return {
+    ...agreement,
+    model: inUse.model ?? agreement.model,
+    prompt_version: inUse.promptVersion ?? agreement.prompt_version,
+    checked: 0,
+    agreed: 0,
+    rate: null,
+    unlocked: false,
+  }
+}
+
+/** What Try it's suggestion box shows for the item on screen: a held-out
+ * item, the request on its way, the suggestion, a failed request, an answer
+ * that wasn't one of the labels (reported as skipped), no suggestion to show,
+ * or no item. */
+export type TryView = 'holdout' | 'asking' | 'ready' | 'failed' | 'invalid' | 'answered' | 'idle'
+
+/** An item the AI and the student labelled differently, for the improving state. */
+export interface Disagreement {
+  id: Id
+  text: string
+  yours: string
+  ai: string
+}
+
+/** Try it's improving state: the server's full sample is checked and the AI
+ * agreed less often than its threshold. */
+export function agreementLow(agreement: LlmAgreement | null): boolean {
+  if (!agreement || agreement.rate === null) return false
+  return agreement.checked >= agreement.min_sample && agreement.rate < agreement.threshold
+}
+
+/** Try it's running count, in the server's own sample size and threshold.
+ * Without the server's check there are no numbers to give. */
+export function agreementLine(agreement: LlmAgreement | null): string {
+  if (!agreement) return 'Each answer counts toward the check.'
+  const { checked, agreed, min_sample: minSample } = agreement
+  const left = Math.max(minSample - checked, 0)
+  if (left > 0) {
+    const more = `${left} more to check before it can label the rest.`
+    return checked ? `The AI agreed with you on ${agreed} of ${checked}. ${more}` : `${more[0].toUpperCase()}${more.slice(1)}`
+  }
+  const threshold = Math.round(agreement.threshold * 100)
+  return `The AI agreed with you on ${agreed} of ${checked}. It needs to agree at least ${threshold}% of the time before it can label the rest.`
+}
+
 /** One label's count in Show it how, and the count it can still reach. */
 export interface ShowLabelTarget {
   label: string

@@ -11,6 +11,55 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-25
+
+### Added
+
+- **The guide's step 4, "Try it", has its own words and controls** (BAIGLE
+  #195). For the item on screen the guide asks the AI once (per prompt
+  version and model) and shows its label and reason with "Accept <label>",
+  "Skip", and "Not right? Pick your label:" with the other labels. Accept
+  confirms the suggestion; picking another label corrects it, so the
+  student's label is saved and the disagreement counts. A label chosen in the
+  item below still corrects the suggestion too, and the item no longer shows
+  its own copy of the suggestion while Try it is on screen. With the
+  suggestion focused, Enter accepts it; S skips as before. States, all in the
+  same box so nothing below moves: "Asking the AI…" while it waits; "The AI
+  didn't answer. Label this one yourself, or try again." as an alert with Try
+  again; "Skipped: the AI's answer wasn't one of your labels. Label this one
+  yourself."; and on a held-out item no suggestion is asked for, with "This
+  item is kept aside to test your model later. You label these yourself; the
+  AI never sees them."
+- **A running count** in a polite live region, in the server's own
+  agreement settings (`min_sample`, `threshold`): "The AI agreed with you on
+  X of Y. Z more to check before it can label the rest." Once the check
+  passes the guide moves to Do the rest.
+- **The improving state.** At the server's full sample with agreement under
+  its threshold, the step becomes "Make your descriptions clearer": the
+  agreement in plain numbers, the items where the AI and the student
+  disagreed (text, your label, the AI's label), and an editable description
+  per label, with "Saving starts the check again with your new
+  descriptions." Save descriptions makes a new prompt version (template
+  unchanged) and returns to Try it with the check from zero; a refusal is
+  shown as an alert and the edit stays. "Keep going one item at a time"
+  returns to the suggestion card for this visit and never unlocks bulk
+  accept: only the server's check moves the guide on.
+- **Phones (640px and under), in step 4**: the panel folds to one line,
+  "Step 4 of 6 · Agreed X of Y", with Details, as in step 3. The suggestion
+  card sits outside the folded part, so Accept stays above the item.
+- `currentAgreement`, `agreementLow` and `agreementLine` are exported, with
+  the types `TryView` and `Disagreement`. Without the server's check,
+  `agreementLine(null)` reads "Each answer counts toward the check."
+
+### Changed
+
+- The guide reads the agreement check as starting from zero as soon as a
+  new prompt version (or another model) is in use, instead of showing the
+  previous version's check until the first new suggestion.
+- `LabellingGuide` emits `step`, `answer` (`{ suggestionId, label? }`) and
+  `skip`, and takes `busy`; `AnnotationWorkspace` handles them. Steps 5 and
+  6 still show today's AI panel until BAIGLE #196.
+
 ## [0.15.0] - 2026-11-25
 
 ### Added
@@ -649,7 +698,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.12.0...v0.13.0

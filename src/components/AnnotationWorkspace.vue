@@ -19,6 +19,7 @@ import {
   readPendingDescriptions,
   writeGuidePreference,
   type GuidePreference,
+  type GuideStepKey,
 } from '../annotation/guide'
 import { useAnnotation } from '../composables/useAnnotation'
 import { taskTypeLabel } from './modelCatalogData'
@@ -132,6 +133,8 @@ const aiUnavailable = computed(
   () => !isSingleLabelTask(props.taskType) && !!props.datasetId && !!adapter.value?.getLlmStatus,
 )
 const guidePreference = ref<GuidePreference>(null)
+/** The guide's step. In Try it the guide shows the suggestion, so the item doesn't too. */
+const guideStepKey = ref<GuideStepKey | null>(null)
 const guideOpen = ref(false)
 const showGuide = computed(() => guideAvailable.value && guideOpen.value)
 /** Each label's sentence, shown beside the labels while labelling. */
@@ -181,7 +184,7 @@ const suggestion = computed(() =>
 
 /** The waiting suggestion as a kit proposal: never a label until accepted (BAIGLE ADR 0003). */
 const proposals = computed<Proposal[]>(() =>
-  suggestion.value
+  suggestion.value && !(showGuide.value && guideStepKey.value === 'try')
     ? [{
         id: suggestion.value.id,
         kind: 'document',
@@ -278,6 +281,19 @@ async function onProposalAnswered(event: { proposal: Proposal; annotation: { lab
   }
 }
 
+/** Try it in the guide: Accept confirms the suggestion; picking another label corrects it. */
+async function onGuideAnswer({ suggestionId, label }: { suggestionId: string; label?: string }) {
+  if (isSubmitting.value) return
+  if (await confirmSuggestion(suggestionId, label, props.projectId, props.datasetId)) {
+    notice.value = label === undefined ? 'Suggestion accepted' : 'Suggestion corrected'
+    labelsVersion.value += 1
+  } else {
+    // The save may still have reached the server (a lost reply): what waits is
+    // read again, so a suggestion already answered there is dropped.
+    labelsVersion.value += 1
+  }
+}
+
 async function onRejectSuggestion() {
   const rejected = suggestion.value
   if (!rejected || isSubmitting.value) return
@@ -360,12 +376,16 @@ async function onLabelHoldout() {
       :labels-version="labelsVersion"
       :current-task-id="task?.id ?? null"
       :current-holdout="holdout || !!task?.is_holdout"
+      :busy="isSubmitting"
       @hide="setGuide(false)"
       @loaded="onGuideLoaded"
       @labels-saved="onGuideLabels"
       @descriptions="labelDescriptions = $event"
       @suggestions="suggestions = $event"
       @labelled="onLlmLabelled"
+      @step="guideStepKey = $event"
+      @answer="onGuideAnswer"
+      @skip="onSkip"
     />
     <p v-else-if="guideAvailable" class="vmlb-guide-show">
       <button type="button" class="vmlb-guide-show-link" @click="setGuide(true)">Show guide</button>
