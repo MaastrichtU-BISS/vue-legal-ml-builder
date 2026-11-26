@@ -427,7 +427,8 @@ function retrySuggestion() {
 
 /** Accept, or another label picked: the workspace saves it. */
 function answer(suggestionId: Id, label?: string) {
-  asked.value = asked.value.filter((s) => s.id !== suggestionId)
+  // Kept until the server no longer lists it as waiting (the labelsVersion
+  // reload below), so a failed save leaves the suggestion there to answer.
   emit('answer', label === undefined ? { suggestionId } : { suggestionId, label })
 }
 
@@ -436,11 +437,25 @@ watch([trying, askKey, ready, promptKnown, () => props.currentHoldout, () => !!t
   void askForSuggestion()
 })
 // While Try it shows, the guide says what waits, newest first, so the
-// workspace saves a label chosen in the item over the current suggestion.
-watch([() => step.value === 'try', waiting], ([onTry, list]) => {
+// workspace saves a label chosen in the item over the current suggestion. Only
+// the prompt version and model in use: an older version's suggestion is not
+// the one Try it asks about, so a label picked on the item stays the student's own.
+const waitingInUse = computed(() =>
+  waiting.value.filter(
+    (s) =>
+      (inUse.value.promptVersion === null || s.prompt_version >= inUse.value.promptVersion) &&
+      (!inUse.value.model || s.model === inUse.value.model),
+  ),
+)
+watch([() => step.value === 'try', waitingInUse], ([onTry, list]) => {
   if (onTry) emit('suggestions', list)
 })
 watch(step, (value) => emit('step', value), { immediate: true })
+// Try it opens folded on a phone, so Accept sits above the fold, even when
+// Show it how was unfolded for its hand-off line.
+watch(step, (value, previous) => {
+  if (value === 'try' && previous !== 'try') detailsOpen.value = false
+})
 
 // ---------------------------------------------------------------------------
 // Try it's improving state.
@@ -451,8 +466,10 @@ watch(step, (value) => emit('step', value), { immediate: true })
  * every suggestion for the check's model and prompt version on a confirmed
  * item, whatever its status, so each is compared with the label the student
  * confirmed. */
+let disagreementsAsked = 0
 async function loadDisagreements() {
   const forCheck = check.value
+  const asking = ++disagreementsAsked
   disagreements.value = null
   disagreementsFailed.value = false
   try {
@@ -470,14 +487,17 @@ async function loadDisagreements() {
         const task = tasks?.get(s.task_id)
         if (task) return { id: s.id, text: task.text, yours: task.annotation_label ?? '', ai: s.label }
         // A suggestion still waiting is on an item not confirmed yet: not in the check.
-        if (s.status === 'pending') return null
+        // With the list of labelled items, one missing from it isn't confirmed either.
+        if (s.status === 'pending' || tasks) return null
         const opened = await props.adapter.getAnnotationAssignment(s.task_id)
         return { id: s.id, text: opened.document.full_text, yours: opened.assignment.document_annotations[0]?.label ?? '', ai: s.label }
       }),
     )
+    // An older load finishing last must not replace a newer one.
+    if (asking !== disagreementsAsked) return
     disagreements.value = compared.filter((d): d is Disagreement => !!d && !!d.yours && d.yours !== d.ai)
   } catch {
-    disagreementsFailed.value = true
+    if (asking === disagreementsAsked) disagreementsFailed.value = true
   }
 }
 
@@ -539,6 +559,10 @@ watch(() => props.labelsVersion, async () => {
 // can be saved, and when the prompt Try it asks with can be read.
 watch(ready, (value) => {
   if (!value) return
+  // Access back (a key saved, the allowance or go-ahead restored): an item the
+  // AI couldn't answer while it was missing is asked about again.
+  const kept = Object.entries(outcomes.value).filter(([, outcome]) => outcome !== 'failed')
+  if (kept.length !== Object.keys(outcomes.value).length) outcomes.value = Object.fromEntries(kept)
   if (pendingDescriptions.value || (loadState.value === 'ready' && !prompt.value)) void syncDescriptions()
 })
 // Focus follows a step change, not the first render.

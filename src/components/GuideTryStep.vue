@@ -33,7 +33,9 @@ const showsCard = computed(() => props.view === 'ready' && !!props.suggestion)
  * Accept button never needs more room than was held. */
 const placeholder = computed(() => {
   const label = props.labels.reduce((longest, l) => (l.length > longest.length ? l : longest), '')
-  return { label, others: props.labels.filter((l) => l !== label) }
+  // Every label in the "Pick your label" row: the real row is always some of
+  // them, so it never wraps onto more lines than were held.
+  return { label, others: props.labels }
 })
 
 const root = ref<HTMLElement | null>(null)
@@ -59,6 +61,16 @@ function skip() {
   emit('skip')
 }
 
+/** S on the card skips here, not through the workspace's own S, so the next
+ * suggestion takes focus as it does after the Skip button. */
+function onKeydown(event: KeyboardEvent) {
+  if (!showsCard.value || event.key.toLowerCase() !== 's') return
+  if (event.ctrlKey || event.metaKey || event.altKey) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (!props.busy) skip()
+}
+
 watch(
   () => props.suggestion?.id,
   async (id) => {
@@ -74,11 +86,11 @@ watch(
 </script>
 
 <template>
-  <div ref="root" class="vmlb-guide-try">
+  <div ref="root" class="vmlb-guide-try" @keydown="onKeydown">
     <!-- One box for every state, so "Asking the AI…" and the suggestion take the same room. -->
-    <div class="vmlb-guide-suggestion">
-      <!-- Every state but the suggestion: the card's rows, held invisibly, keep its height. -->
-      <div v-if="!showsCard" class="vmlb-guide-suggested vmlb-guide-placeholder" aria-hidden="true">
+    <div v-if="view !== 'idle'" class="vmlb-guide-suggestion">
+      <!-- The card's rows, held invisibly under every state, the card too, so the box is always the larger of the two. -->
+      <div class="vmlb-guide-suggested vmlb-guide-placeholder" aria-hidden="true">
         <p class="vmlb-guide-suggested-label"><Icon name="spark" /> The AI suggests <strong>{{ placeholder.label }}</strong></p>
         <p class="vmlb-guide-reason">&nbsp;<br />&nbsp;</p>
         <div class="vmlb-guide-try-actions">
