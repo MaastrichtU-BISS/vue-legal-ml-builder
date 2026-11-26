@@ -2,7 +2,7 @@
 // and the per-Dataset choice to hide it. The step is always worked out from
 // what the server reports, never stored.
 
-import type { Id, LlmAgreement } from '../types'
+import type { Id, LlmAgreement, LlmSuggestion } from '../types'
 
 export type GuideStepKey = 'labels' | 'connect' | 'show' | 'try' | 'rest' | 'ready'
 
@@ -53,6 +53,12 @@ export interface GuideProgress {
   pending: number | null
   /** The agreement check for the current model and prompt, as the server reports it. */
   agreement: LlmAgreement | null
+  /** Some item still to label can be labelled by the AI: it has no suggestion
+   * yet from the model and prompt version in use (the server skips any that
+   * has one, whatever its status). Unknown counts as yes. */
+  aiCanLabelMore?: boolean
+  /** The AI's labels waiting for the student to accept them. */
+  aiLabelsWaiting?: number
 }
 
 /** The agreement check passed, by the server's own sample size and threshold. */
@@ -171,8 +177,17 @@ export function guideStep(p: GuideProgress): GuideStepKey {
   if (!p.hasAccess || !p.acknowledged) return 'connect'
   if (!showMet(p)) return 'show'
   if (!agreementPassed(p.agreement)) return 'try'
+  // Every label has enough examples and the AI can do nothing more: what is
+  // left is for the student, and training needn't wait for it.
+  if (aiFinished(p) && readyToTrain(p)) return 'ready'
   // Pending items remain and the check passed: the AI labels the rest.
   return 'rest'
+}
+
+/** The AI has nothing more to do: no item left it can label, and none of its
+ * labels waiting to be accepted. */
+function aiFinished(p: GuideProgress): boolean {
+  return p.aiCanLabelMore === false && !p.aiLabelsWaiting
 }
 
 /** Whether each step's own condition is met, so a step passed only because
@@ -187,7 +202,7 @@ export function stepsMet(p: GuideProgress): Record<GuideStepKey, boolean> {
     // Reached in full: a label that ran out of items moved the step on, but is skipped, not done.
     show: !(p.confirmedPerLabel !== null && p.labels.some((label) => (p.confirmedPerLabel![label] ?? 0) < SHOW_PER_LABEL)) && p.confirmedTotal >= SHOW_TOTAL,
     try: passed,
-    rest: passed && p.pending === 0,
+    rest: passed && (p.pending === 0 || aiFinished(p)),
     ready: p.pending === 0,
   }
 }
@@ -197,6 +212,129 @@ export function stepsMet(p: GuideProgress): Record<GuideStepKey, boolean> {
 export function labelsShortOfReady(p: Pick<GuideProgress, 'labels' | 'confirmedPerLabel'>): string[] {
   if (p.confirmedPerLabel === null) return []
   return p.labels.filter((label) => (p.confirmedPerLabel![label] ?? 0) < READY_PER_LABEL)
+}
+
+/** Every label has READY_PER_LABEL or more confirmed examples, as the server
+ * counts them; false when it cannot count per label. */
+export function readyToTrain(p: Pick<GuideProgress, 'labels' | 'confirmedPerLabel'>): boolean {
+  return p.confirmedPerLabel !== null && labelsShortOfReady(p).length === 0
+}
+
+// ---------------------------------------------------------------------------
+// Step 5, Do the rest, and step 6, Ready to train.
+// ---------------------------------------------------------------------------
+
+/** Do the rest's items: every item still to label (null), or only the next `count`. */
+export interface RestScope {
+  count: number | null
+}
+
+/** How many of the AI's labels "Check them first" shows. */
+export const CHECK_SAMPLE = 10
+/** Below this many confirmed examples, Ready to train names the label in a warning. */
+export const READY_WARN_BELOW = 50
+
+/** The AI's labels a bulk accept would make labels: waiting suggestions from
+ * the model and prompt version the passed check is for, on one of the
+ * Dataset's labels, for an item still to label (`pendingIds`, when known).
+ * The server accepts exactly these. */
+export function aiLabelsToAccept(
+  suggestions: LlmSuggestion[],
+  check: LlmAgreement | null,
+  labels: string[],
+  pendingIds: ReadonlySet<Id> | null = null,
+): LlmSuggestion[] {
+  if (!check) return []
+  return suggestions.filter(
+    (s) =>
+      s.status === 'pending' &&
+      (!check.model || s.model === check.model) &&
+      (check.prompt_version === null || s.prompt_version === check.prompt_version) &&
+      labels.includes(s.label) &&
+      (!pendingIds || pendingIds.has(s.task_id)),
+  )
+}
+
+/** The items the AI can still label, in the order given: those with no
+ * suggestion from `model` and `promptVersion`, whatever its status. The server
+ * skips any item that has one, so an item whose AI label was rejected is left
+ * for the student. A null model or version matches any. */
+export function aiLabellable<T extends { id: Id }>(
+  tasks: T[],
+  suggestions: LlmSuggestion[],
+  inUse: { model: string | null; promptVersion: number | null },
+): T[] {
+  const answered = new Set(
+    suggestions
+      .filter((s) => (inUse.model == null || s.model === inUse.model) && (inUse.promptVersion == null || s.prompt_version === inUse.promptVersion))
+      .map((s) => s.task_id),
+  )
+  return tasks.filter((t) => !answered.has(t.id))
+}
+
+/** What the guide's live region says about a running job: the start, then a
+ * line each time it passes another quarter, so a screen reader isn't told
+ * every poll. `last` is the quarter last announced (null before the start);
+ * null back means say nothing new. */
+export function jobProgressLine(job: { done: number; total: number }, last: number | null): { line: string; quarter: number } | null {
+  const quarter = job.total ? Math.floor((Math.min(job.done, job.total) / job.total) * 4) : 0
+  if (last !== null && quarter <= last) return null
+  return { line: `Labelling: ${job.done} of ${job.total} done.`, quarter }
+}
+
+/** Up to `n` items picked at random, each at most once. */
+export function pickAtRandom<T>(items: T[], n: number, random: () => number = Math.random): T[] {
+  const pool = [...items]
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1))
+    ;[pool[i], pool[j]] = [pool[j], pool[i]]
+  }
+  return pool.slice(0, n)
+}
+
+export interface ReadyLabel {
+  label: string
+  count: number
+}
+
+export interface ReadySummary {
+  labels: ReadyLabel[]
+  /** Labels with some examples but fewer than READY_WARN_BELOW. */
+  few: ReadyLabel[]
+  /** Labels with no examples: a model can't be trained. */
+  none: string[]
+}
+
+/** Ready to train's counts per label, the labels to warn about, and those
+ * that block Create model. Empty when the server cannot count per label. */
+export function readySummary(p: Pick<GuideProgress, 'labels' | 'confirmedPerLabel'>): ReadySummary {
+  if (p.confirmedPerLabel === null) return { labels: [], few: [], none: [] }
+  const labels = p.labels.map((label) => ({ label, count: p.confirmedPerLabel![label] ?? 0 }))
+  return {
+    labels,
+    few: labels.filter((l) => l.count > 0 && l.count < READY_WARN_BELOW),
+    none: labels.filter((l) => l.count === 0).map((l) => l.label),
+  }
+}
+
+/** The server's words when the key was refused or is gone, not when it was
+ * only rate-limited: "rejected the API key", "key … is no longer available". */
+const KEY_FAILED = /(rejected|refused)\b.*\bkey\b|\bkey\b.*\b(no longer|can't be used|cannot be used)\b/i
+
+/** A refusal that means the key itself stopped working, in words for the
+ * student; null for any other. The server gives a provider's refusal of the
+ * key no code of its own (it is an `llm_failed`), so its message says so. */
+export function keyFailureReason(code: string | null | undefined, message: string | null | undefined): string | null {
+  const text = message?.trim() ?? ''
+  if (code === 'credential_unusable') return text || "The AI key can't be used any more."
+  if (code === 'llm_failed' && KEY_FAILED.test(text)) return text
+  return null
+}
+
+/** The same for a job the worker stopped: its error names the key when the key was the reason. */
+export function jobKeyFailureReason(error: string | null | undefined): string | null {
+  const text = error?.trim() ?? ''
+  return KEY_FAILED.test(text) ? text : null
 }
 
 export function stepIndex(key: GuideStepKey): number {
@@ -231,6 +369,29 @@ export function writeGuidePreference(datasetId: Id, hidden: boolean): void {
     window.localStorage.setItem(guideStorageKey(datasetId), hidden ? '1' : '0')
   } catch {
     // No storage: the choice lasts for this visit only.
+  }
+}
+
+/** The Do the rest job last started on a Dataset. Only its id is kept: its
+ * progress is always read from the server. */
+function jobKey(datasetId: Id): string {
+  return `vmlb-guide-job:${datasetId}`
+}
+
+export function readGuideJob(datasetId: Id): Id | null {
+  try {
+    return window.localStorage.getItem(jobKey(datasetId))
+  } catch {
+    return null
+  }
+}
+
+export function writeGuideJob(datasetId: Id, jobId: Id | null): void {
+  try {
+    if (jobId) window.localStorage.setItem(jobKey(datasetId), jobId)
+    else window.localStorage.removeItem(jobKey(datasetId))
+  } catch {
+    // No storage: a job left running is picked up again only in this visit.
   }
 }
 

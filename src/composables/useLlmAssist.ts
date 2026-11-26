@@ -7,6 +7,12 @@ import { createPollLoop, type PollLoop } from '../utils/polling'
 /** Refusals after which the status on screen is out of date. */
 const STATUS_CODES = ['no_llm_access', 'acknowledgement_required', 'destination_changed', 'credential_unusable']
 
+/** The server answered that it doesn't know the job (a 404, or its "Job not found"). */
+function jobNotFound(err: unknown): boolean {
+  const failure = err as { status?: number; message?: string } | null
+  return failure?.status === 404 || /\bjob not found\b/i.test(failure?.message ?? '')
+}
+
 /** A Dataset's LLM access and suggestions. Nothing is sent to an LLM until the
  * Project has acknowledged the destination the backend names. */
 export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
@@ -20,6 +26,8 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   const error = ref<string | null>(null)
   /** The refusal's `code` behind `error`, when the adapter gave one. */
   const errorCode = ref<string | null>(null)
+  /** The message of the refusal `errorCode` came with, whichever ref shows it. */
+  const errorMessage = ref<string | null>(null)
   const notice = ref('')
   const isBusy = ref(false)
   /** The monthly limit of the shared key is used up. */
@@ -28,6 +36,8 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
    * undefined), and the job once started. */
   const estimate = ref<LlmEstimate | null>(null)
   const job = ref<LlmJob | null>(null)
+  /** The job being followed, so a host can pick it up again on a later visit. */
+  const jobId = ref<Id | null>(null)
   let estimatedIds: Id[] | undefined
   let jobLoop: PollLoop | null = null
   /** The Dataset on screen. A reply about any other is dropped. */
@@ -68,6 +78,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     isBusy.value = true
     error.value = null
     errorCode.value = null
+    errorMessage.value = null
     errorRef.value = null
     notice.value = ''
     try {
@@ -76,6 +87,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
       const refusal = err as LlmRefusalError
       errorRef.value = err instanceof Error ? err.message : fallback
       errorCode.value = refusal?.code ?? null
+      errorMessage.value = errorRef.value
       if (refusal?.code === 'budget_exhausted') budgetExhausted.value = true
       if (STATUS_CODES.includes(refusal?.code ?? '')) await loadStatus(datasetId).catch(() => undefined)
     } finally {
@@ -91,6 +103,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
       prompt.value = null
       estimate.value = null
       job.value = null
+      jobId.value = null
     }
     currentId = datasetId
     return run(datasetId, () => loadStatus(datasetId), 'Failed to load LLM access')
@@ -131,13 +144,18 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     }
   }
 
-  /** Resolves true when suggestions became labels. */
+  /** How many suggestions the last bulk accept made labels, as the server counted them. */
+  const acceptedCount = ref<number | null>(null)
+
+  /** Resolves true when suggestions became labels; `acceptedCount` says how many. */
   async function bulkAccept(datasetId: Id) {
     let accepted = false
+    acceptedCount.value = null
     await run(datasetId, async () => {
       try {
         const result = await adapter.bulkAcceptLlmSuggestions!(datasetId)
         accepted = true
+        acceptedCount.value = result.accepted
         notice.value = `${count(result.accepted, 'suggestion')} accepted.`
       } finally {
         await loadProgress(datasetId).catch(() => undefined)
@@ -211,33 +229,70 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     estimate.value = null
   }
 
+  /** Reads the job once; resolves false when it has finished. */
+  async function readJob(datasetId: Id, id: Id): Promise<boolean> {
+    const next = await adapter.getLlmJob!(id)
+    if (datasetId !== currentId || jobId.value !== id) return false
+    job.value = next
+    if (next.status === 'queued' || next.status === 'running') return true
+    stopJob()
+    if (next.status === 'budget_exhausted') budgetExhausted.value = true
+    await loadStatus(datasetId).catch(() => undefined)
+    return false
+  }
+
+  function followJob(datasetId: Id, id: Id) {
+    stopJob()
+    jobLoop = createPollLoop(async () => {
+      if (datasetId !== currentId) return stopJob()
+      await readJob(datasetId, id)
+    }, pollIntervalMs)
+    jobLoop.start()
+  }
+
   /** Starts the job on the items it estimated, then follows it on the worker. */
   function startJob(datasetId: Id) {
     return run(datasetId, async () => {
-      const { job_id: jobId, estimate: confirmed } = await adapter.startLlmAnnotation!(datasetId, estimatedIds)
+      const { job_id: id, estimate: confirmed } = await adapter.startLlmAnnotation!(datasetId, estimatedIds)
       estimate.value = null
+      jobId.value = id
       job.value = { status: 'queued', total: confirmed.tasks, done: 0 }
-      stopJob()
-      jobLoop = createPollLoop(async () => {
-        const next = await adapter.getLlmJob!(jobId)
-        if (datasetId !== currentId) return stopJob()
-        job.value = next
-        if (next.status === 'queued' || next.status === 'running') return
-        stopJob()
-        if (next.status === 'budget_exhausted') budgetExhausted.value = true
-        await loadStatus(datasetId)
-      }, pollIntervalMs)
-      jobLoop.start()
+      followJob(datasetId, id)
     }, 'Failed to start labelling')
+  }
+
+  /** Picks up a job started on an earlier visit, from the worker's own
+   * record of it. Resolves false when the server no longer knows the job; a
+   * read that failed otherwise (the network) keeps following it. */
+  async function resumeJob(datasetId: Id, id: Id): Promise<boolean> {
+    jobId.value = id
+    try {
+      if (await readJob(datasetId, id)) followJob(datasetId, id)
+      return true
+    } catch (err) {
+      if (!jobNotFound(err)) {
+        if (jobId.value === id) followJob(datasetId, id)
+        return true
+      }
+      if (jobId.value === id) jobId.value = null
+      return false
+    }
+  }
+
+  /** Forgets the job on screen, e.g. once its labels are accepted. */
+  function clearJob() {
+    stopJob()
+    job.value = null
+    jobId.value = null
   }
 
   onUnmounted(stopJob)
 
   return {
-    status, suggestions, agreement, prompt, promptError, error, errorCode, notice, isBusy, budgetExhausted, hasAccess, ready,
-    estimate, job,
+    status, suggestions, agreement, prompt, promptError, error, errorCode, errorMessage, notice, isBusy, budgetExhausted, hasAccess, ready,
+    estimate, job, jobId, acceptedCount,
     refresh, refreshProgress, saveKey, deleteKey, acknowledge, suggest, bulkAccept, loadPrompt, savePrompt,
     suggestOne, suggestError,
-    estimateJob, clearEstimate, startJob,
+    estimateJob, clearEstimate, startJob, resumeJob, clearJob,
   }
 }

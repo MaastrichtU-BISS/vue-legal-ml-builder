@@ -11,6 +11,107 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-25
+
+### Added
+
+- **The guide's step 5, "Do the rest", has its own words and controls**
+  (BAIGLE #196). It defaults to every item still to label, with "Only the
+  next N items" as an option (when the adapter lists pending items). "Work
+  out the cost" shows "Working out the cost…" while the server counts, then
+  reads "About X tokens. You have Y left this month."; with the student's own
+  key it says the provider charges for these tokens instead. A job larger
+  than what is left is not offered. The estimate and the job always name the
+  items: those the AI can still label, that is items still to label with no
+  answer yet from the model and prompt version in use, whatever happened to
+  it (the server skips any that has one). "Every item still to label" counts
+  those, and "the next N" are the next N of them in queue order. "Start
+  labelling N items" runs the job, with its progress in the guide's one
+  polite live region (the start, then each quarter passed) and a progress
+  bar with the exact count.
+- **When what is left can't be labelled by the AI** (it already answered on
+  each item, e.g. its label was rejected in "Check 10 at random first"), Do
+  the rest says "N items are left for you to label" instead of offering an
+  estimate. When the item on screen is the only one left, its waiting AI
+  label is offered to accept.
+- **A job can be left and picked up again.** The guide keeps only the job's
+  id per Dataset in browser storage and reads its progress from the server
+  on the next visit; a job the server no longer knows (a 404) is forgotten,
+  and one that couldn't be read for another reason is still followed. Once a
+  job is read as finished or stopped its id is forgotten, so a stopped job
+  isn't shown again on a later visit. A failed job shows "Labelling stopped
+  after N of M. Those N are kept." as an alert (N kept is the AI labels it
+  made), with Carry on, which returns to the choice of items with a new
+  estimate, noting the AI labels already waiting are kept.
+- **When the AI has finished**, its labels wait: "Accept N AI labels" is the
+  only way to make them labels, and N counts only the suggestions the server
+  would accept (the passed check's model and prompt version, on one of the
+  Dataset's labels). "Check 10 at random first" opens the review screen on
+  10 of them picked at random in the browser; "Let the AI label more first"
+  returns to the estimate while items the AI can still label remain. N
+  leaves out suggestions for items no longer waiting for a label, and the
+  live region announces the count the server accepted.
+- **The review screen can check the AI's labels.** `LabelReview` takes
+  `check` (a list of suggestions): each item shows the AI's label as a kit
+  proposal, "The AI's label, not accepted yet", that the student accepts,
+  corrects or rejects; one moved past unanswered stays waiting. Focus goes
+  to its heading when it opens, and back to the guide's step on "Back to
+  the guide".
+- **The guide's step 6, "Ready to train"**: the confirmed examples per label,
+  a warning naming each label under 50 ("Only 12 “Prohibition” examples.
+  Your model may miss this label; 50 or more works better."), and Create
+  model as the main button, opening the workspace's `createModelHref`. With
+  a label at 0, Create model is disabled and the reason names the label. The
+  guide is on it when nothing is left to label, or when every label has 2 or
+  more confirmed and the AI can label nothing more with none of its labels
+  waiting; with items still unlabelled it says "N items are still
+  unlabelled. You can train now, or label them later." While the AI can
+  still label items, Do the rest offers "Go to Ready to train" once every
+  label has 2 or more confirmed (for that visit; nothing is stored).
+- **Back to Connect AI when the AI can't be used.** The shared allowance
+  running out (a refusal or a job stopped for it) or the key failing (a
+  `credential_unusable` refusal, or the provider refusing the key, in Try it
+  or Do the rest) returns the guide to Connect AI with the reason and the key
+  form, saying the labels already made are kept. Saving a key again returns
+  to where the student was.
+- `useLlmAssist` exposes `jobId`, `resumeJob`, `clearJob` and
+  `acceptedCount` (how many the last bulk accept made labels, as the server
+  counted them). Exported from the guide: `CHECK_SAMPLE`, `READY_WARN_BELOW`,
+  `aiLabellable`, `aiLabelsToAccept`, `readySummary`, `readyToTrain`, and
+  the types `ReadyLabel`, `ReadySummary` and `RestScope`.
+
+### Changed
+
+- Steps 5 and 6 no longer show today's AI panel inside the guide. Hidden,
+  the guide still shows that panel unchanged.
+- `LabellingGuide` takes `createModelHref` and emits `check`;
+  `AnnotationWorkspace` passes its `createModelHref` and opens the review on
+  `check`. In Do the rest the item on screen shows the AI's waiting label as
+  a proposal, as the panel did.
+
+### Changed
+
+- **In Do the rest, the item on screen shows only the AI label from the
+  prompt version and model in use**, as Try it does since 0.16.0's council
+  fixes. An older version's answer is not offered there, so a label picked on
+  the item stays the student's own.
+- **A new key saved after the provider refused the old one asks the AI again**
+  about the item on screen in Try it, instead of showing "The AI didn't
+  answer".
+- **A job left running is forgotten only when the server says the job is not
+  found** (a 404, or "Job not found"), not on another not-found refusal.
+- **Rejecting the AI's label on the item in Do the rest updates the step**:
+  the guide reads again what waits, so the rejected label is no longer counted
+  in "Accept N AI labels" or picked for Check 10 at random.
+- **Pressing "Check 10 at random first" again starts the review screen afresh**
+  on the new 10, instead of showing a new label beside the old item's text.
+- **Leaving Do the rest drops its estimate**, so after Connect AI the cost and
+  what is left this month are worked out again for the key in use. A finished
+  or stopped job is forgotten when the model changes.
+- **The provider refusing the key while saving improved descriptions returns
+  to Connect AI**, and an earlier refusal's message is never read as a later
+  one's: the guide reads the code and message of the same request.
+
 ## [0.16.0] - 2026-11-25
 
 ### Added
@@ -698,7 +799,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.13.0...v0.14.0

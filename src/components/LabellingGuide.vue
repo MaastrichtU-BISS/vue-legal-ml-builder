@@ -1,32 +1,46 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onMounted, ref, watch } from 'vue'
 import {
+  CHECK_SAMPLE,
   GUIDE_STEPS,
   SHOW_TOTAL,
   agreementLine,
   agreementLow,
+  aiLabellable,
+  aiLabelsToAccept,
   currentAgreement,
   definitionsToFill,
   guideStep,
+  jobKeyFailureReason,
+  jobProgressLine,
+  keyFailureReason,
+  pickAtRandom,
+  readGuideJob,
   readPendingDescriptions,
+  readySummary,
+  readyToTrain,
   showTargets,
   stepIndex,
   stepsMet,
+  writeGuideJob,
   writePendingDescriptions,
   type Disagreement,
   type GuideProgress,
   type GuideStepKey,
+  type RestScope,
   type TryView,
 } from '../annotation/guide'
-import { newestFirst, waitingSuggestion } from '../annotation/llmAssist'
+import { count } from '../annotation/annotationState'
+import { newestFirst, queueOrder, waitingSuggestion } from '../annotation/llmAssist'
 import { useLlmAssist } from '../composables/useLlmAssist'
-import type { AnnotationStats, AnnotationTask, Dataset, Id, LlmAgreement, LlmKeyInput, LlmStatus, LlmSuggestion, MLAdapter } from '../types'
+import type { AnnotationStats, AnnotationTask, Dataset, Id, LlmKeyInput, LlmSuggestion, MLAdapter } from '../types'
 import GuideConnectStep from './GuideConnectStep.vue'
 import GuideImproveStep from './GuideImproveStep.vue'
 import GuideLabelsStep from './GuideLabelsStep.vue'
+import GuideReadyStep from './GuideReadyStep.vue'
+import GuideRestStep from './GuideRestStep.vue'
 import GuideShowStep from './GuideShowStep.vue'
 import GuideTryStep from './GuideTryStep.vue'
-import LlmAssistPanel from './LlmAssistPanel.vue'
 import Icon from './shared/Icon.vue'
 
 // The guided "Label with AI help" mode: one panel with the six-step rail, a
@@ -51,6 +65,8 @@ const props = defineProps<{
   currentHoldout?: boolean
   /** The workspace is saving a label. */
   busy?: boolean
+  /** Where Ready to train's Create model opens. */
+  createModelHref?: string
 }>()
 const emit = defineEmits<{
   (e: 'hide'): void
@@ -67,12 +83,17 @@ const emit = defineEmits<{
   /** Try it: the student accepted the suggestion, or picked their own label over it. */
   (e: 'answer', answer: { suggestionId: Id; label?: string }): void
   (e: 'skip'): void
+  /** Do the rest: open the review screen on these of the AI's labels, picked at random. */
+  (e: 'check', suggestions: LlmSuggestion[]): void
 }>()
 
 const llm = useLlmAssist(props.adapter, inject<number>('vmlb:pollInterval', 3000))
 const { status, agreement, prompt, promptError, hasAccess, ready, budgetExhausted } = llm
 
 const loadState = ref<'loading' | 'ready' | 'error'>('loading')
+/** Why the AI key stopped working in Try it or Do the rest. The guide returns
+ * to Connect AI with it until a key is saved again. */
+const keyFailure = ref<string | null>(null)
 /** Confirmed labels per label; null when the server cannot count them. With
  * fewer than two named labels, the labels found on items and their counts. */
 const perLabel = ref<Record<string, number> | null>(null)
@@ -121,17 +142,63 @@ const promptKnown = computed(() => !props.adapter.getLlmPrompt || prompt.value !
  * may be an older version's, and a passed one would flash Do the rest. */
 const check = computed(() => (ready.value && !promptKnown.value ? null : currentAgreement(agreement.value, inUse.value)))
 
+/** Suggestions this guide asked for and the student hasn't answered yet. A
+ * reload of what is waiting can be read before a new suggestion is stored, so
+ * these are kept beside it rather than lost. */
+const asked = ref<LlmSuggestion[]>([])
+const waiting = computed(() =>
+  newestFirst([...asked.value, ...llm.suggestions.value.filter((s) => !asked.value.some((a) => a.id === s.id))]),
+)
+
+/** Do the rest's view of what is left: the items still to label in queue
+ * order (held-back ones left out) and every suggestion on the Dataset,
+ * whatever its status. Null until read, or when the adapter can't list them. */
+const restTasks = ref<AnnotationTask[] | null>(null)
+const restSuggestions = ref<LlmSuggestion[] | null>(null)
+const pendingIds = computed(() => (restTasks.value ? new Set(restTasks.value.map((t) => t.id)) : null))
+/** The AI's labels a bulk accept would make labels, as the server counts them. */
+const aiLabels = computed(() => aiLabelsToAccept(waiting.value, check.value, props.labels, pendingIds.value))
+/** The items the AI can still label: the server skips any item that already
+ * has an answer from the model and prompt version in use, whatever happened
+ * to it. Null when unknown. */
+const labellable = computed(() => {
+  if (!restTasks.value || !restSuggestions.value) return null
+  const model = inUse.value.model ?? check.value?.model ?? null
+  const promptVersion = inUse.value.promptVersion ?? check.value?.prompt_version ?? null
+  return aiLabellable(restTasks.value, [...restSuggestions.value, ...waiting.value], { model, promptVersion })
+})
+
 const progress = computed<GuideProgress>(() => ({
   labels: props.labels,
-  // A shared allowance used up sends the student back to Connect AI.
-  hasAccess: hasAccess.value && !budgetExhausted.value,
+  // A shared allowance used up, or a key that stopped working, sends the student back to Connect AI.
+  hasAccess: hasAccess.value && !budgetExhausted.value && !keyFailure.value,
   acknowledged: !!status.value?.acknowledged,
   confirmedPerLabel: props.labels.length >= 2 ? perLabel.value : null,
   confirmedTotal: confirmedTotal.value,
   pending: pending.value,
   agreement: check.value,
+  aiCanLabelMore: labellable.value === null || labellable.value.length > 0,
+  aiLabelsWaiting: aiLabels.value.length,
 }))
-const step = computed<GuideStepKey>(() => guideStep(progress.value))
+/** Ready to train, chosen in Do the rest for this visit: every label has
+ * enough examples, and the rest can wait. Never stored. */
+const readyChosen = ref(false)
+/** Ready to train can be chosen: every label has enough examples and none of
+ * the AI's labels waits, since Ready to train offers no way to accept them. */
+const canFinish = computed(() => readyToTrain(progress.value) && aiLabels.value.length === 0)
+const derivedStep = computed<GuideStepKey>(() => guideStep(progress.value))
+const step = computed<GuideStepKey>(() => {
+  const derived = derivedStep.value
+  return derived === 'rest' && readyChosen.value && canFinish.value ? 'ready' : derived
+})
+// The choice holds only while the guide stays on Do the rest or Ready to train:
+// sent back to Connect AI, say, the student comes back through Do the rest.
+watch(derivedStep, (value) => {
+  if (value !== 'rest' && value !== 'ready') readyChosen.value = false
+})
+/** The guide would be on Do the rest if the AI could still label something:
+ * what is left decides between Do the rest and Ready to train. */
+const restCandidate = computed(() => guideStep({ ...progress.value, aiCanLabelMore: true }) === 'rest')
 const met = computed(() => stepsMet(progress.value))
 const current = computed(() => stepIndex(step.value))
 const currentStep = computed(() => GUIDE_STEPS[current.value])
@@ -159,11 +226,18 @@ function folded(): boolean {
  * check decides, it waits for the prompt too: the check is for the prompt
  * version in use, and the server's may still be an older one's. */
 const settled = ref(false)
+/** What is left has been read once (or the read failed): until then Do the
+ * rest and Ready to train can't be told apart. */
+const restRead = ref(false)
 const showing = computed(() => {
   if (loadState.value === 'error') return 'error'
   const loaded = loadState.value === 'ready' && (props.stats || !props.statsLoading)
-  const checkKnown = settled.value || !ready.value || promptKnown.value || (step.value !== 'try' && step.value !== 'rest')
-  return loaded && checkKnown ? 'ready' : 'loading'
+  const checkKnown =
+    settled.value || !ready.value || promptKnown.value || (step.value !== 'try' && step.value !== 'rest' && !restCandidate.value)
+  // On first load, a Dataset that may be on Do the rest waits for what is left,
+  // so it never shows Do the rest and then jumps to Ready to train.
+  const restKnown = settled.value || !restCandidate.value || !props.adapter.listAnnotationTasks || restRead.value
+  return loaded && checkKnown && restKnown ? 'ready' : 'loading'
 })
 watch(showing, (value) => {
   if (value === 'ready') settled.value = true
@@ -235,6 +309,8 @@ async function load() {
     ;[running] = await Promise.all([announcedLoad ? false : loopRunning(), llm.refresh(props.datasetId)])
     if (llm.error.value) throw new Error(llm.error.value)
     perLabel.value = await loadCounts()
+    if (restCandidate.value) await loadRest()
+    await resumeStoredJob()
     loadState.value = 'ready'
   } catch {
     loadState.value = 'error'
@@ -341,10 +417,13 @@ async function onLabelsSaved(saved: { dataset: Dataset; labels: string[]; descri
   await syncDescriptions()
 }
 
-/** Step 2: saves the key through the guide's own LLM state. */
+/** Step 2: saves the key through the guide's own LLM state. A key saved
+ * again ends a key failure that sent the student back here. */
 async function connectKey(key: LlmKeyInput) {
   await llm.saveKey(props.datasetId, key)
-  return llm.error.value ? { message: llm.error.value, code: llm.errorCode.value } : null
+  if (llm.error.value) return { message: llm.error.value, code: llm.errorCode.value }
+  keyFailure.value = null
+  return null
 }
 
 /** Step 2's Allow. Set before the step changes, so Show it how opens with
@@ -376,13 +455,6 @@ const outcomes = ref<Record<string, Exclude<TryView, 'holdout' | 'ready' | 'idle
 const askKey = computed(() =>
   props.currentTaskId ? `${props.currentTaskId}:${inUse.value.promptVersion ?? ''}:${inUse.value.model ?? ''}` : null,
 )
-/** Suggestions this guide asked for and the student hasn't answered yet. A
- * reload of what is waiting can be read before a new suggestion is stored, so
- * these are kept beside it rather than lost. */
-const asked = ref<LlmSuggestion[]>([])
-const waiting = computed(() =>
-  newestFirst([...asked.value, ...llm.suggestions.value.filter((s) => !asked.value.some((a) => a.id === s.id))]),
-)
 /** What waits from the prompt version and model in use. Nothing while the
  * prompt version is still loading: an older version's suggestion would match. */
 const waitingInUse = computed(() =>
@@ -410,7 +482,14 @@ const liveCount = computed(() => {
   if (showing.value !== 'ready') return ''
   if (step.value === 'show') return `${targets.value.total} of ${SHOW_TOTAL} examples labelled.`
   if (trying.value) return agreementLine(check.value)
-  return ''
+  if (step.value === 'rest') {
+    const job = llm.job.value
+    if (job?.status === 'queued' || job?.status === 'running') return jobLine.value
+    if (job?.status === 'completed' && aiLabels.value.length) {
+      return `Labelling finished. The AI labelled ${count(aiLabels.value.length, 'item')}.`
+    }
+  }
+  return restNotice.value
 })
 
 async function askForSuggestion() {
@@ -448,11 +527,13 @@ watch([trying, askKey, ready, promptKnown, () => props.currentHoldout, () => !!t
   void askForSuggestion()
 })
 // While Try it shows, the guide says what waits, newest first, so the
-// workspace saves a label chosen in the item over the current suggestion. Only
-// the prompt version and model in use: an older version's suggestion is not
-// the one Try it asks about, so a label picked on the item stays the student's own.
-watch([() => step.value === 'try', waitingInUse], ([onTry, list]) => {
-  if (onTry) emit('suggestions', list)
+// workspace saves a label chosen in the item over the current suggestion.
+// In Do the rest too: an item on screen shows the AI's label waiting for it.
+// Only the prompt version and model in use: an older version's suggestion is
+// not the one the guide asks about, so a label picked on the item stays the
+// student's own.
+watch([() => step.value === 'try' || step.value === 'rest', waitingInUse], ([shown, list]) => {
+  if (shown) emit('suggestions', list)
 })
 watch(step, (value) => emit('step', value), { immediate: true })
 // Try it opens folded on a phone, so Accept sits above the fold, even when
@@ -537,12 +618,195 @@ async function saveDescriptions(definitions: Record<string, string>) {
   }
 }
 
-/** Today's panel, inside the step, keeps the guide's step up to date. */
-function onPanelState(state: { status: LlmStatus | null; agreement: LlmAgreement | null }) {
-  if (state.status) status.value = state.status
-  // The panel reads its status before its agreement; a passing null would flip the step.
-  if (state.agreement) agreement.value = state.agreement
+// ---------------------------------------------------------------------------
+// Step 5, Do the rest: an estimate, the job, then an explicit accept.
+// ---------------------------------------------------------------------------
+
+/** Try it's suggestion for the item on screen is among them: not the AI's own labelling. */
+const onScreenWaiting = computed(() => !!props.currentTaskId && aiLabels.value.some((s) => s.task_id === props.currentTaskId))
+const restEstimating = ref(false)
+/** Starting the job or accepting its labels. */
+const restBusy = ref(false)
+const restError = ref<string | null>(null)
+/** What the live region last said about Do the rest, e.g. labels accepted. */
+const restNotice = ref('')
+
+/** The job's progress as the live region last said it: the start, then each
+ * quarter passed, not every poll. The progress bar has the exact count. */
+const jobLine = ref('')
+let jobQuarter: number | null = null
+watch(() => llm.job.value, (job) => {
+  if (job?.status === 'queued') {
+    jobLine.value = 'Labelling is waiting to start.'
+    jobQuarter = null
+    return
+  }
+  if (job?.status === 'running') {
+    const next = jobProgressLine(job, jobQuarter)
+    if (next) {
+      jobLine.value = next.line
+      jobQuarter = next.quarter
+    }
+    return
+  }
+  // Finished or stopped: the step's own message (or its alert) says so.
+  jobLine.value = ''
+  jobQuarter = null
+})
+
+let restAsked = 0
+/** Reads what is left: the items still to label and every suggestion on
+ * them. A failed read leaves the last one; unknown, the AI is assumed able to
+ * label what is left. */
+async function loadRest(): Promise<void> {
+  const { listAnnotationTasks, listLlmSuggestions } = props.adapter
+  if (!listAnnotationTasks) return
+  const asking = ++restAsked
+  try {
+    const [tasks, all] = await Promise.all([
+      listAnnotationTasks(props.projectId, { status: 'pending', datasetId: props.datasetId }),
+      listLlmSuggestions ? listLlmSuggestions(props.datasetId) : Promise.resolve(null),
+    ])
+    if (asking !== restAsked) return
+    restTasks.value = queueOrder(tasks.filter((t) => !t.is_holdout))
+    restSuggestions.value = all
+  } catch {
+    // The last read stands until the next one.
+  } finally {
+    if (asking === restAsked) restRead.value = true
+  }
 }
+
+/** The items the AI is asked to label: those it can still label, every one or
+ * the next `scope.count` in queue order. Always named, so the estimate and the
+ * job leave out items that already have its answer. Undefined (every pending
+ * item) only when the adapter can't list them. */
+async function restIds(scope: RestScope): Promise<Id[] | undefined> {
+  if (!props.adapter.listAnnotationTasks) return undefined
+  await loadRest()
+  const items = labellable.value ?? restTasks.value
+  if (!items) return undefined
+  return (scope.count === null ? items : items.slice(0, scope.count)).map((t) => t.id)
+}
+
+/** Nothing is sent: the server counts the tokens. */
+async function estimateRest(scope: RestScope) {
+  restEstimating.value = true
+  restError.value = null
+  restNotice.value = ''
+  try {
+    await llm.estimateJob(props.datasetId, () => restIds(scope))
+    restError.value = llm.error.value
+  } finally {
+    restEstimating.value = false
+  }
+}
+
+async function startRest() {
+  restBusy.value = true
+  restError.value = null
+  try {
+    await llm.startJob(props.datasetId)
+    if (llm.error.value) restError.value = llm.error.value
+    else if (llm.jobId.value) writeGuideJob(props.datasetId, llm.jobId.value)
+  } finally {
+    restBusy.value = false
+  }
+}
+
+/** Carry on after a job stopped: the items it labelled stay waiting, and a new
+ * estimate covers what is still to label. */
+function carryOn(scope: RestScope) {
+  llm.clearJob()
+  writeGuideJob(props.datasetId, null)
+  void estimateRest(scope)
+}
+
+/** The student's explicit accept; the server allows it only after its passed
+ * check, and says how many it accepted. */
+async function acceptRest() {
+  restBusy.value = true
+  restError.value = null
+  try {
+    if (!(await llm.bulkAccept(props.datasetId))) {
+      restError.value = llm.error.value
+      return
+    }
+    llm.clearJob()
+    writeGuideJob(props.datasetId, null)
+    restNotice.value = `${count(llm.acceptedCount.value ?? 0, 'AI label')} accepted.`
+    void loadRest()
+    emit('labelled')
+  } finally {
+    restBusy.value = false
+  }
+}
+
+function checkFirst() {
+  restNotice.value = ''
+  emit('check', pickAtRandom(aiLabels.value, CHECK_SAMPLE))
+}
+
+/** A job left running (or stopped) on an earlier visit is picked up again
+ * from the server; one the server no longer knows is forgotten. */
+async function resumeStoredJob() {
+  const id = readGuideJob(props.datasetId)
+  if (!id || !props.adapter.getLlmJob || llm.jobId.value === id) return
+  if (!(await llm.resumeJob(props.datasetId, id))) writeGuideJob(props.datasetId, null)
+}
+
+watch(() => llm.job.value?.status, (value) => {
+  const job = llm.job.value
+  if (!value || value === 'queued' || value === 'running') return
+  // Finished or stopped, read once: what it made waits on the server as the
+  // AI's labels, and a later visit has nothing to pick up again (nor a stale
+  // key failure to send the student back to Connect AI with).
+  writeGuideJob(props.datasetId, null)
+  void loadRest()
+  // Stopped because the key failed: back to Connect AI, with the labels made so far kept.
+  if (value === 'failed') {
+    const reason = jobKeyFailureReason(job?.error)
+    if (reason) keyFailure.value = reason
+  }
+})
+
+// A key the provider refused, or one that can't be used any more, while the
+// AI is in use: back to Connect AI with the reason.
+// The code and message are the same request's, so an earlier refusal's message
+// can't be read as this one's (and a refused prompt save counts too).
+watch([llm.errorCode, llm.errorMessage], ([code, message]) => {
+  if (step.value !== 'try' && step.value !== 'rest') return
+  const reason = keyFailureReason(code, message)
+  if (reason) keyFailure.value = reason
+})
+// Leaving Do the rest (to Connect AI, say) drops its estimate: the cost and
+// what is left this month are worked out again for the key in use on return.
+watch(step, (value) => {
+  if (value === 'rest') return
+  restError.value = null
+  llm.clearEstimate()
+})
+// A finished or stopped job was the old model's: a new model starts Do the
+// rest afresh rather than on that job's outcome.
+watch(
+  () => inUse.value.model,
+  (model, previous) => {
+    const jobStatus = llm.job.value?.status
+    if (!previous || model === previous || !jobStatus || jobStatus === 'queued' || jobStatus === 'running') return
+    llm.clearJob()
+  },
+)
+// Also when the guide finishes loading: a Dataset that became a Do the rest
+// candidate while it loaded would otherwise never read what is left.
+watch([restCandidate, loadState], ([candidate, state], [wasCandidate, wasState]) => {
+  if (candidate && state === 'ready' && (!wasCandidate || wasState !== 'ready')) void loadRest()
+})
+
+/** Focus the step's heading, e.g. when the student comes back from checking the AI's labels. */
+function focusHeading() {
+  heading.value?.focus()
+}
+defineExpose({ focusHeading })
 
 // The workspace keys the guide by Dataset, so a new Dataset mounts a new guide.
 onMounted(load)
@@ -555,17 +819,19 @@ watch(() => props.labelsVersion, async () => {
   const before = new Set(asked.value.map((s) => s.id))
   const list = llm.suggestions.value
   await llm.refreshProgress(props.datasetId)
+  // A label saved, or the AI's label rejected: what is left changed.
+  if (restCandidate.value) void loadRest()
   if (llm.suggestions.value === list) return
   const onServer = new Set(llm.suggestions.value.map((s) => s.id))
   asked.value = asked.value.filter((s) => !before.has(s.id) || onServer.has(s.id))
 })
 // Access arriving (a key saved, sending allowed) is when waiting descriptions
 // can be saved, and when the prompt Try it asks with can be read.
-// Access back (a key saved, the go-ahead given, or the allowance replaced by
-// the student's own key): an item the AI couldn't answer while it was missing
-// is asked about again.
+// Access back (a key saved, the go-ahead given, the allowance replaced by the
+// student's own key, or a new key saved after the provider refused the old
+// one): an item the AI couldn't answer while it was missing is asked about again.
 watch(
-  () => ready.value && !budgetExhausted.value,
+  () => ready.value && !budgetExhausted.value && !keyFailure.value,
   (usable) => {
     if (!usable) return
     const kept = Object.entries(outcomes.value).filter(([, outcome]) => outcome !== 'failed')
@@ -695,6 +961,7 @@ watch([stepView, showing], async ([next, state]) => {
             :status="status"
             :has-access="hasAccess"
             :budget-exhausted="budgetExhausted"
+            :failure="keyFailure"
             :save-key="connectKey"
             :allow="allowSending"
             @myself="emit('hide')"
@@ -721,21 +988,30 @@ watch([stepView, showing], async ([next, state]) => {
             Check the AI against your own labels. Accept its label when it matches yours, or pick your own. Each answer
             counts toward the check.
           </p>
-          <!-- Temporary (BAIGLE #193): steps 5–6 show today's AI controls under the
-               step title until #196 gives each step its own words and controls. -->
-          <LlmAssistPanel
-            v-else
-            embedded
-            :adapter="adapter"
-            :project-id="projectId"
-            :dataset-id="datasetId"
-            :labels="labels"
-            :current-task-id="currentTaskId ?? null"
-            :labels-version="labelsVersion"
-            @suggestions="emit('suggestions', $event)"
-            @labelled="emit('labelled')"
-            @state="onPanelState"
+          <GuideRestStep
+            v-else-if="step === 'rest'"
+            :status="status"
+            :pending="pending"
+            :labellable="labellable ? labellable.length : null"
+            :can-finish="canFinish"
+            :can-choose="!!adapter.listAnnotationTasks"
+            :estimate="llm.estimate.value"
+            :job="llm.job.value"
+            :ai-labels="aiLabels.length"
+            :on-screen-waiting="onScreenWaiting"
+            :can-check="!!adapter.confirmLlmSuggestion"
+            :estimating="restEstimating"
+            :busy="restBusy"
+            :error="restError"
+            @estimate="estimateRest"
+            @change="llm.clearEstimate"
+            @start="startRest"
+            @carry-on="carryOn"
+            @accept="acceptRest"
+            @check="checkFirst"
+            @finish="readyChosen = true"
           />
+          <GuideReadyStep v-else :summary="readySummary(progress)" :create-model-href="createModelHref" :left="pending" />
         </div>
       </template>
     </div>
