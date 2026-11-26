@@ -383,8 +383,19 @@ const asked = ref<LlmSuggestion[]>([])
 const waiting = computed(() =>
   newestFirst([...asked.value, ...llm.suggestions.value.filter((s) => !asked.value.some((a) => a.id === s.id))]),
 )
+/** What waits from the prompt version and model in use. Nothing while the
+ * prompt version is still loading: an older version's suggestion would match. */
+const waitingInUse = computed(() =>
+  ready.value && !promptKnown.value
+    ? []
+    : waiting.value.filter(
+        (s) =>
+          (inUse.value.promptVersion === null || s.prompt_version >= inUse.value.promptVersion) &&
+          (!inUse.value.model || s.model === inUse.value.model),
+      ),
+)
 const trySuggestion = computed(() =>
-  props.currentTaskId ? waitingSuggestion(waiting.value, props.currentTaskId, inUse.value) : null,
+  props.currentTaskId ? waitingSuggestion(waitingInUse.value, props.currentTaskId, inUse.value) : null,
 )
 const tryView = computed<TryView>(() => {
   if (props.currentHoldout) return 'holdout'
@@ -440,13 +451,6 @@ watch([trying, askKey, ready, promptKnown, () => props.currentHoldout, () => !!t
 // workspace saves a label chosen in the item over the current suggestion. Only
 // the prompt version and model in use: an older version's suggestion is not
 // the one Try it asks about, so a label picked on the item stays the student's own.
-const waitingInUse = computed(() =>
-  waiting.value.filter(
-    (s) =>
-      (inUse.value.promptVersion === null || s.prompt_version >= inUse.value.promptVersion) &&
-      (!inUse.value.model || s.model === inUse.value.model),
-  ),
-)
 watch([() => step.value === 'try', waitingInUse], ([onTry, list]) => {
   if (onTry) emit('suggestions', list)
 })
@@ -557,12 +561,21 @@ watch(() => props.labelsVersion, async () => {
 })
 // Access arriving (a key saved, sending allowed) is when waiting descriptions
 // can be saved, and when the prompt Try it asks with can be read.
+// Access back (a key saved, the go-ahead given, or the allowance replaced by
+// the student's own key): an item the AI couldn't answer while it was missing
+// is asked about again.
+watch(
+  () => ready.value && !budgetExhausted.value,
+  (usable) => {
+    if (!usable) return
+    const kept = Object.entries(outcomes.value).filter(([, outcome]) => outcome !== 'failed')
+    if (kept.length === Object.keys(outcomes.value).length) return
+    outcomes.value = Object.fromEntries(kept)
+    void askForSuggestion()
+  },
+)
 watch(ready, (value) => {
   if (!value) return
-  // Access back (a key saved, the allowance or go-ahead restored): an item the
-  // AI couldn't answer while it was missing is asked about again.
-  const kept = Object.entries(outcomes.value).filter(([, outcome]) => outcome !== 'failed')
-  if (kept.length !== Object.keys(outcomes.value).length) outcomes.value = Object.fromEntries(kept)
   if (pendingDescriptions.value || (loadState.value === 'ready' && !prompt.value)) void syncDescriptions()
 })
 // Focus follows a step change, not the first render.
