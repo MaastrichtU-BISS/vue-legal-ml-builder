@@ -507,6 +507,10 @@ async function askForSuggestion() {
   if (batch) asked.value = [...asked.value, ...batch.suggestions.filter((s) => s.status === 'pending')]
   if (!batch) outcome = 'failed'
   else if (!batch.suggestions.length && batch.invalid) outcome = 'invalid'
+  // Already asked with the prompt in use, but its version is unknown, so the
+  // suggestion waiting from it can't be told from an older one's: not "no
+  // suggestion", which may be false, but the failure and its Try again.
+  else if (!batch.suggestions.length && promptFailed.value) outcome = 'failed'
   // Already asked with this prompt and model: what is waiting is read again.
   else if (!batch.suggestions.length) await llm.refreshProgress(props.datasetId)
   outcomes.value = { ...outcomes.value, [key]: outcome }
@@ -527,7 +531,9 @@ function answer(suggestionId: Id, label?: string) {
 }
 
 // The save of new descriptions comes first: its new prompt version is the one to ask with.
-watch([trying, askKey, ready, promptKnown, () => props.currentHoldout, () => !!trySuggestion.value, () => improveSaving.value], () => {
+// Not on a suggestion leaving the item on screen: it was answered (the next item
+// loads) or rejected, and the item was asked about already.
+watch([trying, askKey, ready, promptKnown, () => props.currentHoldout, () => improveSaving.value], () => {
   void askForSuggestion()
 })
 // While Try it shows, the guide says what waits, newest first, so the

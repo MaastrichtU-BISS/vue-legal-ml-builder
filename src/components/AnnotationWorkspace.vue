@@ -173,6 +173,8 @@ function onGuideLoaded({ hasSuggestions, loopRunning }: { hasSuggestions: boolea
 }
 
 function setGuide(open: boolean) {
+  // The other view's list of what waits is not the re-read `unsure` waits for.
+  unsure.value = null
   guideOpen.value = open
   if (!props.datasetId) return
   writeGuidePreference(props.datasetId, !open)
@@ -273,6 +275,7 @@ watch(suggestions, (list) => {
   const lost = unsure.value
   if (!lost || task.value?.id !== lost.taskId || list.some((s) => s.id === lost.suggestionId)) return
   unsure.value = null
+  notice.value = 'Your answer was saved'
   void reload()
 })
 
@@ -280,6 +283,8 @@ watch(suggestions, (list) => {
 async function onKitSave(assignment: Assignment) {
   const tags = assignment.document_annotations
   if (controls.value !== 'entities' && !tags.length) throw new Error('Choose a label for this item.')
+  // A new answer: an earlier one's lost reply no longer decides the item.
+  unsure.value = null
   // A label chosen over a waiting suggestion confirms or corrects it, so the agreement counts it.
   const answering = suggestion.value
   const saved = answering
@@ -323,6 +328,7 @@ async function onProposalAnswered(event: { proposal: Proposal; annotation: { lab
 /** Try it in the guide: Accept confirms the suggestion; picking another label corrects it. */
 async function onGuideAnswer({ suggestionId, label }: { suggestionId: string; label?: string }) {
   if (isSubmitting.value) return
+  unsure.value = null
   const answered = suggestions.value.find((s) => s.id === suggestionId)
   if (await confirmSuggestion(suggestionId, label, props.projectId, props.datasetId)) {
     notice.value = label === undefined ? 'Suggestion accepted' : 'Suggestion corrected'
@@ -335,6 +341,9 @@ async function onGuideAnswer({ suggestionId, label }: { suggestionId: string; la
 }
 
 async function onRejectSuggestion() {
+  // Rejecting drops the suggestion from the list: that is not the server
+  // saying an earlier answer reached it.
+  unsure.value = null
   const rejected = suggestion.value
   if (!rejected || isSubmitting.value) return
   error.value = null

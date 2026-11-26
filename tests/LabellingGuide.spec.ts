@@ -2012,6 +2012,7 @@ describe('Try it follow-ups (BAIGLE #211)', () => {
 
     // Read again, the server no longer has it waiting: the item is answered.
     expect(kitText(wrapper)).toBe('Clause two.')
+    expect(wrapper.find('.vmlb-notice').text()).toBe('Your answer was saved')
     expect(guide(wrapper).text()).not.toContain('The AI has no suggestion for this item.')
     expect(button(wrapper, 'Accept Civil')).toBeDefined()
     wrapper.unmount()
@@ -2104,6 +2105,106 @@ describe('Try it follow-ups (BAIGLE #211)', () => {
     expect(currentStep(wrapper).text()).toContain('Try it')
     expect(button(wrapper, 'Accept Civil')).toBeDefined()
     expect(createLlmSuggestions).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it("offers to try again, rather than saying the AI has nothing, when the prompt fails to load and the server skips the item", async () => {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '0')
+    // Waiting from the prompt in use, asked on an earlier visit: the guide can't tell its version.
+    const earlier = llmSuggestion({ id: 's-earlier', prompt_version: 3 })
+    const { adapter, wrapper } = await mounted({
+      ...shown,
+      overrides: {
+        getLlmPrompt: vi.fn().mockRejectedValue(new Error('Server error')),
+        listLlmSuggestions: vi.fn().mockResolvedValue([earlier]),
+        // Already asked with this prompt: the server skips the item.
+        createLlmSuggestions: vi.fn().mockResolvedValue({ suggestions: [], skipped: 1, invalid: 0 }),
+      },
+    })
+
+    expect(adapter.createLlmSuggestions).toHaveBeenCalledTimes(1)
+    expect(guide(wrapper).text()).not.toContain('The AI has no suggestion for this item.')
+    expect(guide(wrapper).text()).toContain("The AI didn't answer")
+    expect(button(wrapper, 'Try again')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('keeps the item and its pick when a failed save is followed by Reject with the guide hidden', async () => {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '1')
+    const getNextAnnotationTask = vi.fn().mockResolvedValue({ task: item, stats: shown.stats })
+    const { adapter, wrapper } = await mounted({
+      ...shown,
+      overrides: {
+        getNextAnnotationTask,
+        confirmLlmSuggestion: vi.fn().mockRejectedValue(new Error('Server error')),
+        // Still waiting on the server: the save didn't reach it.
+        listLlmSuggestions: vi.fn().mockResolvedValue([llmSuggestion()]),
+      },
+    })
+    expect(guide(wrapper).exists()).toBe(false)
+
+    await labelOnItem(wrapper, 'Civil')
+    expect(adapter.confirmLlmSuggestion).toHaveBeenCalledWith('s1', 'Civil')
+    await wrapper.findAll('.proposal__btn').find((b) => b.text() === 'Reject')!.trigger('click')
+    await flushPromises()
+
+    expect(adapter.rejectLlmSuggestion).toHaveBeenCalledWith('s1')
+    expect(getNextAnnotationTask).toHaveBeenCalledTimes(1)
+    expect(kitText(wrapper)).toBe('Clause one.')
+    wrapper.unmount()
+  })
+
+  it('keeps the item when a failed save is followed by hiding the guide', async () => {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '0')
+    const getNextAnnotationTask = vi.fn().mockResolvedValue({ task: item, stats: shown.stats })
+    const { adapter, wrapper } = await mounted({
+      ...shown,
+      overrides: {
+        getNextAnnotationTask,
+        confirmLlmSuggestion: vi.fn().mockRejectedValue(new Error('Server error')),
+        listLlmSuggestions: vi.fn().mockResolvedValue([llmSuggestion()]),
+        createLlmSuggestions: vi.fn().mockResolvedValue({ suggestions: [llmSuggestion()], skipped: 0, invalid: 0 }),
+      },
+    })
+
+    await labelOnItem(wrapper, 'Civil')
+    expect(adapter.confirmLlmSuggestion).toHaveBeenCalledWith('s1', 'Civil')
+    await click(wrapper, 'Hide guide')
+    await flushPromises()
+
+    expect(guide(wrapper).exists()).toBe(false)
+    expect(getNextAnnotationTask).toHaveBeenCalledTimes(1)
+    expect(kitText(wrapper)).toBe('Clause one.')
+    wrapper.unmount()
+  })
+
+  it('asks nothing more about an item whose waiting suggestion an Accept with a lost reply answered', async () => {
+    // A Dataset with suggestions opens with the guide hidden unless told otherwise.
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '0')
+    let answered = false
+    const confirmLlmSuggestion = vi.fn(async () => {
+      answered = true
+      throw new Error('Network error')
+    })
+    const getNextAnnotationTask = vi.fn()
+      .mockResolvedValueOnce({ task: item, stats: shown.stats })
+      .mockResolvedValue({ task: second, stats: { total: 40, annotated: 13, percentage: 33 } })
+    // Waiting before Try it opened: read, not asked for in this visit.
+    const listLlmSuggestions = vi.fn(async () => (answered ? [] : [llmSuggestion()]))
+    const createLlmSuggestions = vi.fn().mockResolvedValue({ suggestions: [llmSuggestion({ id: 's2', task_id: 't2', label: 'Civil' })], skipped: 0, invalid: 0 })
+    const { wrapper } = await mounted({
+      ...shown,
+      overrides: { confirmLlmSuggestion, getNextAnnotationTask, listLlmSuggestions, createLlmSuggestions },
+    })
+    expect(button(wrapper, 'Accept Criminal')).toBeDefined()
+    expect(createLlmSuggestions).not.toHaveBeenCalled()
+
+    await click(wrapper, 'Accept Criminal')
+    await flushPromises()
+
+    expect(kitText(wrapper)).toBe('Clause two.')
+    expect(wrapper.find('.vmlb-notice').text()).toBe('Your answer was saved')
+    expect(createLlmSuggestions.mock.calls.map((call) => call[1])).not.toContainEqual(['t1'])
     wrapper.unmount()
   })
 

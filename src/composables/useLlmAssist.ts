@@ -52,27 +52,35 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   const hasAccess = computed(() => accessIn(status.value))
   const ready = computed(() => hasAccess.value && !!status.value?.acknowledged)
 
+  /** Numbers each status read: one overtaken by a newer read (a key saved
+   * while the end of a job reads the status) changes nothing. */
+  let statusReads = 0
+
   async function loadStatus(datasetId: Id) {
+    const read = ++statusReads
+    const latest = () => read === statusReads && datasetId === currentId
     const next = await adapter.getLlmStatus!(datasetId)
-    if (datasetId !== currentId) return
+    if (!latest()) return
     // What waits is read before the status changes, and both change together:
     // a new model on screen with the old model's list would find nothing
     // waiting for it and ask for a suggestion it already has.
     let progress: Awaited<ReturnType<typeof readProgress>> | null = null
+    let failed = false
     let failure: unknown = null
     if (accessIn(next) && next.acknowledged) {
       try {
         progress = await readProgress(datasetId)
       } catch (err) {
+        failed = true
         failure = err
       }
-      if (datasetId !== currentId) return
+      if (!latest()) return
     }
     status.value = next
     // A refusal at the limit outlasts a status read; an own key ends it.
     budgetExhausted.value = next.mode === 'shared' && (next.remaining_tokens === 0 || budgetExhausted.value)
     if (progress) showProgress(progress)
-    if (failure) throw failure
+    if (failed) throw failure
   }
 
   function readProgress(datasetId: Id) {
