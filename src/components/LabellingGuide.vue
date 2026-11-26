@@ -516,11 +516,14 @@ async function askForSuggestion() {
   outcomes.value = { ...outcomes.value, [key]: outcome }
 }
 
-function retrySuggestion() {
+async function retrySuggestion() {
   if (!askKey.value) return
   const { [askKey.value]: _failed, ...rest } = outcomes.value
   outcomes.value = rest
-  void askForSuggestion()
+  // With the prompt unread, the server skips an item already asked about: read
+  // it first, so a suggestion waiting from it shows instead of failing again.
+  if (promptFailed.value) await syncDescriptions()
+  await askForSuggestion()
 }
 
 /** Accept, or another label picked: the workspace saves it. */

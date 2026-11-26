@@ -319,6 +319,7 @@ async function onLlmLabelled() {
 /** Accepting confirms the suggestion; choosing another label for it corrects it. */
 async function onProposalAnswered(event: { proposal: Proposal; annotation: { label: string } }, corrected: boolean) {
   const label = corrected ? event.annotation.label : undefined
+  unsure.value = null
   if (await confirmSuggestion(String(event.proposal.id), label, props.projectId, props.datasetId)) {
     notice.value = corrected ? 'Suggestion corrected' : 'Suggestion accepted'
     labelsVersion.value += 1
@@ -341,11 +342,11 @@ async function onGuideAnswer({ suggestionId, label }: { suggestionId: string; la
 }
 
 async function onRejectSuggestion() {
+  const rejected = suggestion.value
+  if (!rejected || isSubmitting.value) return
   // Rejecting drops the suggestion from the list: that is not the server
   // saying an earlier answer reached it.
   unsure.value = null
-  const rejected = suggestion.value
-  if (!rejected || isSubmitting.value) return
   error.value = null
   try {
     await adapter.value!.rejectLlmSuggestion!(rejected.id)

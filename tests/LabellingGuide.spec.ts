@@ -2129,6 +2129,31 @@ describe('Try it follow-ups (BAIGLE #211)', () => {
     wrapper.unmount()
   })
 
+  it('reads the prompt again on Try again, and then shows the suggestion waiting from it without asking again', async () => {
+    localStorage.setItem('vmlb-guide-hidden:ds-1', '0')
+    const earlier = llmSuggestion({ id: 's-earlier', prompt_version: 3 })
+    const { adapter, wrapper } = await mounted({
+      ...shown,
+      overrides: {
+        getLlmPrompt: vi
+          .fn()
+          .mockRejectedValueOnce(new Error('Server error'))
+          .mockResolvedValue({ version: 3, template: DEFAULT_TEMPLATE, definitions: {} }),
+        listLlmSuggestions: vi.fn().mockResolvedValue([earlier]),
+        createLlmSuggestions: vi.fn().mockResolvedValue({ suggestions: [], skipped: 1, invalid: 0 }),
+      },
+    })
+    expect(guide(wrapper).text()).toContain("The AI didn't answer")
+
+    await button(wrapper, 'Try again')!.trigger('click')
+    await flushPromises()
+
+    expect(adapter.getLlmPrompt).toHaveBeenCalledTimes(2)
+    expect(button(wrapper, 'Accept Criminal')).toBeDefined()
+    expect(adapter.createLlmSuggestions).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('keeps the item and its pick when a failed save is followed by Reject with the guide hidden', async () => {
     localStorage.setItem('vmlb-guide-hidden:ds-1', '1')
     const getNextAnnotationTask = vi.fn().mockResolvedValue({ task: item, stats: shown.stats })

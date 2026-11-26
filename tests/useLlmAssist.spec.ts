@@ -30,7 +30,7 @@ describe('useLlmAssist: reading the status', () => {
     const older = deferred<LlmStatus>()
     const getLlmStatus = vi.fn()
       .mockReturnValueOnce(older.promise)
-      .mockResolvedValue(llmStatus({ mode: 'own', model: 'gpt-x' }))
+      .mockResolvedValue(llmStatus({ mode: 'byok', model: 'gpt-x' }))
     const listLlmSuggestions = vi.fn().mockResolvedValue([llmSuggestion({ model: 'gpt-x' })])
     const adapter = createTestAdapter(llmMethods({ getLlmStatus, listLlmSuggestions }))
     const llm = useLlmAssist(adapter)
