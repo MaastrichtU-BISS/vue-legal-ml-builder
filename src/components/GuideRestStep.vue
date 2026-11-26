@@ -64,12 +64,12 @@ const nothingMore = computed(() => props.labellable === 0 || props.estimate?.tas
 const unlabelled = computed(() =>
   nothingMore.value ? 0 : props.labellable ?? (props.pending === null ? 0 : Math.max(props.pending - props.aiLabels, 0)),
 )
-/** The AI has labelled items: waiting labels beyond Try it's suggestions, or a
- * finished job's (its one item may be the one on screen). Try it's alone don't
- * count, so a student arriving from Try it still chooses the items and sees the
- * cost first, unless there is nothing left for the AI to label. */
 /** A finished job made labels: its one item may be the one on screen. */
 const jobMade = computed(() => props.job?.status === 'completed' && (props.job.created ?? props.job.done) > 0)
+/** The AI has labelled items: waiting labels beyond Try it's suggestions, or a
+ * finished job's that made some. Try it's alone don't count, so a student
+ * arriving from Try it still chooses the items and sees the cost first, unless
+ * there is nothing left for the AI to label. */
 const labelsReady = computed(
   () =>
     props.aiLabels > 0 &&
