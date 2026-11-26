@@ -46,32 +46,48 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   /** The account may use an LLM key: their own, or the shared one while it
    * works. A shared key the usage meter cannot vouch for is not usable access,
    * so the panel offers an own key and nothing may spend the shared one. */
-  const hasAccess = computed(
-    () =>
-      !!status.value &&
-      status.value.mode !== 'none' &&
-      (status.value.mode !== 'shared' || status.value.shared_key_available !== false),
-  )
+  function accessIn(next: LlmStatus | null): boolean {
+    return !!next && next.mode !== 'none' && (next.mode !== 'shared' || next.shared_key_available !== false)
+  }
+  const hasAccess = computed(() => accessIn(status.value))
   const ready = computed(() => hasAccess.value && !!status.value?.acknowledged)
 
   async function loadStatus(datasetId: Id) {
     const next = await adapter.getLlmStatus!(datasetId)
     if (datasetId !== currentId) return
+    // What waits is read before the status changes, and both change together:
+    // a new model on screen with the old model's list would find nothing
+    // waiting for it and ask for a suggestion it already has.
+    let progress: Awaited<ReturnType<typeof readProgress>> | null = null
+    let failure: unknown = null
+    if (accessIn(next) && next.acknowledged) {
+      try {
+        progress = await readProgress(datasetId)
+      } catch (err) {
+        failure = err
+      }
+      if (datasetId !== currentId) return
+    }
     status.value = next
     // A refusal at the limit outlasts a status read; an own key ends it.
     budgetExhausted.value = next.mode === 'shared' && (next.remaining_tokens === 0 || budgetExhausted.value)
-    if (ready.value) await loadProgress(datasetId)
+    if (progress) showProgress(progress)
+    if (failure) throw failure
+  }
+
+  function readProgress(datasetId: Id) {
+    return Promise.all([adapter.listLlmSuggestions?.(datasetId, 'pending'), adapter.getLlmAgreement?.(datasetId)])
+  }
+
+  function showProgress([waiting, check]: Awaited<ReturnType<typeof readProgress>>) {
+    suggestions.value = waiting ?? []
+    agreement.value = check ?? null
   }
 
   /** What is waiting, and how far the agreement check has got. */
   async function loadProgress(datasetId: Id) {
-    const [waiting, check] = await Promise.all([
-      adapter.listLlmSuggestions?.(datasetId, 'pending'),
-      adapter.getLlmAgreement?.(datasetId),
-    ])
-    if (datasetId !== currentId) return
-    suggestions.value = waiting ?? []
-    agreement.value = check ?? null
+    const progress = await readProgress(datasetId)
+    if (datasetId === currentId) showProgress(progress)
   }
 
   async function run(datasetId: Id, action: () => Promise<void>, fallback: string, errorRef: Ref<string | null> = error) {

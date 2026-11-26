@@ -11,6 +11,23 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An answer whose save reached the server but lost its reply no longer
+  leaves the item stuck** (BAIGLE #211). In Try it, a label picked on the
+  item over the AI's suggestion that fails to save now makes the guide read
+  again what waits, as Accept already did. When that read shows the
+  suggestion answered, the item has its label and the next item loads,
+  instead of the item staying with "The AI has no suggestion for this item."
+- **A prompt that fails to load no longer lets an older prompt version's
+  waiting suggestion show** in Try it, or be answered by a label picked on
+  the item. Only the suggestion the guide asks for, which comes from the
+  prompt in use, can show.
+- **Switching to another model no longer sends one extra suggestion
+  request**, e.g. when the student's own key replaces a used-up allowance:
+  what waits is read before the new status is shown, and both change
+  together.
+
 ## [0.17.0] - 2026-11-25
 
 ### Added

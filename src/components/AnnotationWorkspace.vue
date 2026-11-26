@@ -3,7 +3,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } fr
 import { AnnotatorView } from 'legal-annotation-kit'
 import type { Assignment, Proposal } from 'legal-annotation-kit'
 import 'legal-annotation-kit/style.css'
-import type { AnnotationAssignment, AnnotationTask, Dataset, LlmSuggestion, MLAdapter } from '../types'
+import type { AnnotationAssignment, AnnotationTask, Dataset, Id, LlmSuggestion, MLAdapter } from '../types'
 import {
   ANNOTATION_STATE,
   annotationControls,
@@ -79,6 +79,10 @@ const labelsVersion = ref(0)
 const suggestions = ref<LlmSuggestion[]>([])
 /** The item on screen as legal-annotation-kit opens it. */
 const opened = ref<AnnotationAssignment | null>(null)
+/** An answer to a suggestion whose save failed, but may still have reached
+ * the server (a lost reply). What waits is read again: a suggestion answered
+ * there is dropped, so the item has its label and the next one loads. */
+const unsure = ref<{ taskId: Id; suggestionId: Id } | null>(null)
 
 const controls = computed(() => annotationControls(props.taskType))
 /** The labels an LLM may choose from: legal-ml-core needs the Dataset to name two. */
@@ -261,16 +265,32 @@ onMounted(() => {
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 watch(task, openItem)
+watch(task, (next) => {
+  if (next?.id !== unsure.value?.taskId) unsure.value = null
+})
+// The re-read lists what waits: without the suggestion answered, the server has the label.
+watch(suggestions, (list) => {
+  const lost = unsure.value
+  if (!lost || task.value?.id !== lost.taskId || list.some((s) => s.id === lost.suggestionId)) return
+  unsure.value = null
+  void reload()
+})
 
 /** The kit's Save. Throwing keeps the item and the work in the kit, which shows why. */
 async function onKitSave(assignment: Assignment) {
   const tags = assignment.document_annotations
   if (controls.value !== 'entities' && !tags.length) throw new Error('Choose a label for this item.')
   // A label chosen over a waiting suggestion confirms or corrects it, so the agreement counts it.
-  const saved = suggestion.value
-    ? await confirmSuggestion(suggestion.value.id, tags[0].label, props.projectId, props.datasetId)
+  const answering = suggestion.value
+  const saved = answering
+    ? await confirmSuggestion(answering.id, tags[0].label, props.projectId, props.datasetId)
     : await saveAssignment(assignment, props.projectId, props.datasetId)
   if (!saved) {
+    if (answering) {
+      // The guide reads again what waits (see `unsure`).
+      unsure.value = { taskId: answering.task_id, suggestionId: answering.id }
+      labelsVersion.value += 1
+    }
     const reason = error.value ?? 'Failed to save annotation'
     error.value = null
     throw new Error(reason)
@@ -303,14 +323,15 @@ async function onProposalAnswered(event: { proposal: Proposal; annotation: { lab
 /** Try it in the guide: Accept confirms the suggestion; picking another label corrects it. */
 async function onGuideAnswer({ suggestionId, label }: { suggestionId: string; label?: string }) {
   if (isSubmitting.value) return
+  const answered = suggestions.value.find((s) => s.id === suggestionId)
   if (await confirmSuggestion(suggestionId, label, props.projectId, props.datasetId)) {
     notice.value = label === undefined ? 'Suggestion accepted' : 'Suggestion corrected'
-    labelsVersion.value += 1
-  } else {
-    // The save may still have reached the server (a lost reply): what waits is
-    // read again, so a suggestion already answered there is dropped.
-    labelsVersion.value += 1
+  } else if (answered) {
+    unsure.value = { taskId: answered.task_id, suggestionId: answered.id }
   }
+  // Saved, or failed but perhaps still reached the server (a lost reply):
+  // either way the guide reads again what waits.
+  labelsVersion.value += 1
 }
 
 async function onRejectSuggestion() {

@@ -455,12 +455,16 @@ const outcomes = ref<Record<string, Exclude<TryView, 'holdout' | 'ready' | 'idle
 const askKey = computed(() =>
   props.currentTaskId ? `${props.currentTaskId}:${inUse.value.promptVersion ?? ''}:${inUse.value.model ?? ''}` : null,
 )
+/** The prompt couldn't be read, so its version is unknown: only what this
+ * visit asked for, from the prompt in use, is the prompt's own. */
+const promptFailed = computed(() => !!props.adapter.getLlmPrompt && prompt.value === null && !!promptError.value)
 /** What waits from the prompt version and model in use. Nothing while the
- * prompt version is still loading: an older version's suggestion would match. */
+ * prompt version is still loading, and only what this visit asked for when it
+ * failed to load: an older version's suggestion would match. */
 const waitingInUse = computed(() =>
   ready.value && !promptKnown.value
     ? []
-    : waiting.value.filter(
+    : (promptFailed.value ? newestFirst(asked.value) : waiting.value).filter(
         (s) =>
           (inUse.value.promptVersion === null || s.prompt_version >= inUse.value.promptVersion) &&
           (!inUse.value.model || s.model === inUse.value.model),
