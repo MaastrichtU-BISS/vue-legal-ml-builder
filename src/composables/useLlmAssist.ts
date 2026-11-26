@@ -215,11 +215,16 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     return batch as LlmSuggestionBatch | null
   }
 
-  function loadPrompt(datasetId: Id) {
-    return run(datasetId, async () => {
+  /** A failure to load stays in `promptError` while the prompt is read again:
+   * cleared first, a guide would take the version as still loading and leave
+   * the step it is on. */
+  async function loadPrompt(datasetId: Id) {
+    const failure = ref<string | null>(null)
+    await run(datasetId, async () => {
       const next = await adapter.getLlmPrompt!(datasetId)
       if (datasetId === currentId) prompt.value = next
-    }, 'Failed to load the prompt', promptError)
+    }, 'Failed to load the prompt', failure)
+    if (datasetId === currentId) promptError.value = failure.value
   }
 
   /** The backend checks the edit, with an LLM among its checks, before it keeps it. */
@@ -236,32 +241,44 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     jobLoop = null
   }
 
+  /** Numbers each estimate asked for; a clear raises it too, so a reply that
+   * arrives after the estimate was cleared (or asked again) is dropped. */
+  let estimates = 0
+
   /** Nothing is sent: the backend counts tokens for the items. */
   function estimateJob(datasetId: Id, taskIds: () => Promise<Id[] | undefined>) {
+    const asked = ++estimates
     return run(datasetId, async () => {
       estimate.value = null
       job.value = null
       const ids = await taskIds()
       const next = await adapter.estimateLlmAnnotation!(datasetId, ids)
-      if (datasetId !== currentId) return
+      if (datasetId !== currentId || asked !== estimates) return
       estimatedIds = ids
       estimate.value = next
     }, 'Failed to estimate the cost')
   }
 
   function clearEstimate() {
+    estimates += 1
     estimate.value = null
   }
 
   /** Reads the job once; resolves false when it has finished. */
   async function readJob(datasetId: Id, id: Id): Promise<boolean> {
     const next = await adapter.getLlmJob!(id)
-    if (datasetId !== currentId || jobId.value !== id) return false
-    job.value = next
-    if (next.status === 'queued' || next.status === 'running') return true
+    const following = () => datasetId === currentId && jobId.value === id
+    if (!following()) return false
+    if (next.status === 'queued' || next.status === 'running') {
+      job.value = next
+      return true
+    }
     stopJob()
     if (next.status === 'budget_exhausted') budgetExhausted.value = true
+    // What it made is read before it shows as finished: finished with nothing
+    // waiting yet, Do the rest would offer the cost again for a moment.
     await loadStatus(datasetId).catch(() => undefined)
+    if (following()) job.value = next
     return false
   }
 

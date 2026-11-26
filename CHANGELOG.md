@@ -13,6 +13,20 @@ tagged `vX.Y.Z`.
 
 ### Fixed
 
+- **Do the rest holds steady around the AI's labels** (BAIGLE #213). A
+  student arriving from Try it who presses Skip on the item its suggestion
+  waits for still chooses the items and sees the cost, instead of being
+  offered that one suggestion to accept. A job that finishes shows as
+  finished only once the labels it made are read, so "Work out the cost" no
+  longer flashes before them. Without a list of the items left, an estimate
+  that finds nothing more to label goes back to the waiting AI labels instead
+  of hiding them. Try again on the sentences alert no longer drops the estimate
+  on screen, and an estimate that comes back after the guide left Do the rest
+  no longer shows. A stopped or finished job is dropped
+  when a new prompt version is saved, and when the model changes even after a
+  time with no model.
+- **Focus returns to the title after the last item of Check 10** (BAIGLE
+  #213), instead of dropping to the page.
 - **An answer whose save reached the server but lost its reply no longer
   leaves the item stuck** (BAIGLE #211). In Try it, a label picked on the
   item over the AI's suggestion that fails to save now makes the guide read
