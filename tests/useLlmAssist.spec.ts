@@ -86,4 +86,46 @@ describe('useLlmAssist: Do the rest (BAIGLE #213)', () => {
 
     expect(llm.estimate.value).toBeNull()
   })
+
+  it('sends no estimate for one cleared while its items were still being listed', async () => {
+    const items = deferred<string[]>()
+    const estimateLlmAnnotation = vi.fn()
+    const adapter = createTestAdapter(llmMethods({ estimateLlmAnnotation }))
+    const llm = useLlmAssist(adapter)
+    await llm.refresh('ds-1')
+
+    const asked = llm.estimateJob('ds-1', () => items.promise)
+    llm.clearEstimate()
+    items.resolve(['t1'])
+
+    expect(await asked).toBe(false)
+    expect(estimateLlmAnnotation).not.toHaveBeenCalled()
+  })
+
+  it('leaves no error from an estimate that fails after it was cleared', async () => {
+    let fail!: (err: Error) => void
+    const estimateLlmAnnotation = vi.fn(() => new Promise<LlmEstimate>((_, reject) => { fail = reject }))
+    const adapter = createTestAdapter(llmMethods({ estimateLlmAnnotation }))
+    const llm = useLlmAssist(adapter)
+    await llm.refresh('ds-1')
+
+    const asked = llm.estimateJob('ds-1', async () => ['t1'])
+    await flushPromises()
+    llm.clearEstimate()
+    fail(new Error('Server error'))
+
+    expect(await asked).toBe(false)
+    expect(llm.error.value).toBeNull()
+  })
+
+  it('says an estimate that comes back in time is current', async () => {
+    const adapter = createTestAdapter(llmMethods({
+      estimateLlmAnnotation: vi.fn().mockResolvedValue({ tasks: 1, estimated_tokens: 100, remaining_tokens: 1000, within_budget: true, destination: 'openrouter.ai' }),
+    }))
+    const llm = useLlmAssist(adapter)
+    await llm.refresh('ds-1')
+
+    expect(await llm.estimateJob('ds-1', async () => ['t1'])).toBe(true)
+    expect(llm.estimate.value?.tasks).toBe(1)
+  })
 })

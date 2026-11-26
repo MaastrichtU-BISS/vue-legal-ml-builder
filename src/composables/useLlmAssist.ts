@@ -125,7 +125,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
       suggestions.value = []
       agreement.value = null
       prompt.value = null
-      estimate.value = null
+      clearEstimate()
       job.value = null
       jobId.value = null
     }
@@ -245,18 +245,36 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
    * arrives after the estimate was cleared (or asked again) is dropped. */
   let estimates = 0
 
-  /** Nothing is sent: the backend counts tokens for the items. */
-  function estimateJob(datasetId: Id, taskIds: () => Promise<Id[] | undefined>) {
+  /** Nothing is sent: the backend counts tokens for the items. Resolves
+   * whether its reply was still current: one left behind (cleared, asked again
+   * or for another Dataset) sends no request once its items are listed, and
+   * neither its estimate nor its error shows. */
+  async function estimateJob(datasetId: Id, taskIds: () => Promise<Id[] | undefined>): Promise<boolean> {
     const asked = ++estimates
-    return run(datasetId, async () => {
+    const current = () => datasetId === currentId && asked === estimates
+    let stale = false
+    await run(datasetId, async () => {
       estimate.value = null
       job.value = null
-      const ids = await taskIds()
-      const next = await adapter.estimateLlmAnnotation!(datasetId, ids)
-      if (datasetId !== currentId || asked !== estimates) return
-      estimatedIds = ids
-      estimate.value = next
+      try {
+        const ids = await taskIds()
+        if (!current()) {
+          stale = true
+          return
+        }
+        const next = await adapter.estimateLlmAnnotation!(datasetId, ids)
+        if (!current()) {
+          stale = true
+          return
+        }
+        estimatedIds = ids
+        estimate.value = next
+      } catch (err) {
+        if (current()) throw err
+        stale = true
+      }
     }, 'Failed to estimate the cost')
+    return !stale
   }
 
   function clearEstimate() {

@@ -712,8 +712,8 @@ async function estimateRest(scope: RestScope) {
   restError.value = null
   restNotice.value = ''
   try {
-    await llm.estimateJob(props.datasetId, () => restIds(scope))
-    restError.value = llm.error.value
+    // An estimate left behind (cleared or asked again) leaves the error alone.
+    if (await llm.estimateJob(props.datasetId, () => restIds(scope))) restError.value = llm.error.value
   } finally {
     restEstimating.value = false
   }
@@ -806,19 +806,20 @@ watch(step, (value) => {
 // A finished or stopped job was the old model's, or the old prompt version's:
 // a new one starts Do the rest afresh rather than on that job's outcome. Each
 // is compared with the last one known, so a time with no model (or the prompt
-// still loading) in between still counts as a change.
+// still loading) in between still counts as a change. The job's status is
+// watched too, and the last known model kept while it runs: the read that ends
+// a job reads the new model before it shows the job as finished.
 const lastKnown: { model: string | null; promptVersion: number | null } = { model: null, promptVersion: null }
 watch(
-  () => [inUse.value.model, inUse.value.promptVersion] as const,
-  ([model, promptVersion]) => {
+  () => [inUse.value.model, inUse.value.promptVersion, llm.job.value?.status] as const,
+  ([model, promptVersion, jobStatus]) => {
+    if (jobStatus === 'queued' || jobStatus === 'running') return
     const changed =
       (model !== null && lastKnown.model !== null && model !== lastKnown.model) ||
       (promptVersion !== null && lastKnown.promptVersion !== null && promptVersion !== lastKnown.promptVersion)
     if (model !== null) lastKnown.model = model
     if (promptVersion !== null) lastKnown.promptVersion = promptVersion
-    const jobStatus = llm.job.value?.status
-    if (!changed || !jobStatus || jobStatus === 'queued' || jobStatus === 'running') return
-    llm.clearJob()
+    if (changed && jobStatus) llm.clearJob()
   },
   { immediate: true },
 )

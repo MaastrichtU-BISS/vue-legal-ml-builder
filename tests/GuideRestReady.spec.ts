@@ -965,6 +965,81 @@ describe('Do the rest follow-ups (BAIGLE #213)', () => {
     await click(wrapper, 'Work out the cost')
 
     expect(button(wrapper, 'Accept 12 AI labels')).toBeDefined()
+    // Nothing more for the AI to label: no button that would do nothing.
+    expect(button(wrapper, 'Let the AI label more first')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it("without a list of the items left, offers Try it's waiting suggestion when an estimate finds nothing more to label", async () => {
+    const fromTry = llmSuggestion({ id: 'try', task_id: item.id, label: 'Civil' })
+    const { wrapper } = await mounted({
+      overrides: {
+        listAnnotationTasks: undefined,
+        listLlmSuggestions: vi.fn().mockResolvedValue([fromTry]),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 0 })),
+      },
+    })
+    expect(button(wrapper, 'Accept 1 AI label')).toBeUndefined()
+
+    await click(wrapper, 'Work out the cost')
+
+    expect(button(wrapper, 'Accept 1 AI label')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('offers the label a finished job made for the item on screen, not the choice of items again', async () => {
+    let finished = false
+    const made = llmSuggestion({ id: 'made', task_id: item.id, label: 'Civil' })
+    const { wrapper } = await mounted({
+      overrides: {
+        listAnnotationTasks: vi.fn().mockResolvedValue([item, ...Array.from({ length: 27 }, (_, i) => pendingTask(i + 1))]),
+        listLlmSuggestions: vi.fn(async () => (finished ? [made] : [])),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 1 })),
+        startLlmAnnotation: vi.fn().mockResolvedValue({ job_id: 'job-1', estimate: estimate({ tasks: 1 }) }),
+        getLlmJob: vi.fn(async () => {
+          finished = true
+          return { status: 'completed', total: 1, done: 1, created: 1 }
+        }),
+      },
+    })
+
+    await wrapper.find('input[type="radio"][value="next"]').setValue(true)
+    await wrapper.find('input[type="number"]').setValue(1)
+    await flushPromises()
+    await click(wrapper, 'Work out the cost')
+    await click(wrapper, 'Start labelling 1 item')
+    await poll()
+
+    expect(button(wrapper, 'Accept 1 AI label')).toBeDefined()
+    expect(button(wrapper, 'Work out the cost')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('drops the old model\'s job when it finishes in the same read that brings the new model', async () => {
+    localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
+    let phase: 'first' | 'other' = 'first'
+    let reads = 0
+    const { wrapper } = await mounted({
+      overrides: {
+        getLlmStatus: vi.fn(async () =>
+          phase === 'first'
+            ? llmStatus()
+            : llmStatus({ mode: 'byok', model: 'gpt-x', remaining_tokens: null, key: { base_url: 'https://openrouter.ai/api/v1', model: 'gpt-x' } }),
+        ),
+        getLlmAgreement: vi.fn(async () => (phase === 'other' ? llmAgreement({ ...passed, model: 'gpt-x' }) : passed)),
+        getLlmJob: vi.fn(async () => {
+          reads += 1
+          if (reads === 1) return { status: 'running', total: 28, done: 9, created: 9 }
+          phase = 'other'
+          return { status: 'failed', total: 28, done: 9, created: 9, error: 'The LLM service returned an error.' }
+        }),
+      },
+    })
+    await poll()
+
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
+    expect(alerts(wrapper).join(' ')).not.toContain('Labelling stopped after 9 of 28')
+    expect(button(wrapper, 'Work out the cost')).toBeDefined()
     wrapper.unmount()
   })
 
