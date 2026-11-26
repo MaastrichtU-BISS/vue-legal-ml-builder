@@ -303,6 +303,10 @@ async function onGuideAnswer({ suggestionId, label }: { suggestionId: string; la
   if (await confirmSuggestion(suggestionId, label, props.projectId, props.datasetId)) {
     notice.value = label === undefined ? 'Suggestion accepted' : 'Suggestion corrected'
     labelsVersion.value += 1
+  } else {
+    // The save may still have reached the server (a lost reply): what waits is
+    // read again, so a suggestion already answered there is dropped.
+    labelsVersion.value += 1
   }
 }
 

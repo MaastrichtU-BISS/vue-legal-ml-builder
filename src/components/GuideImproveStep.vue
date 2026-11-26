@@ -72,10 +72,10 @@ function save() {
     </ul>
 
     <form class="vmlb-guide-improve-form" @submit.prevent="save">
-      <div v-for="label in labels" :key="label" class="vmlb-guide-improve-field">
-        <label :for="`vmlb-guide-describe-${label}`">What {{ label }} means</label>
+      <div v-for="(label, i) in labels" :key="label" class="vmlb-guide-improve-field">
+        <label :for="`vmlb-guide-describe-${i}`">What {{ label }} means</label>
         <textarea
-          :id="`vmlb-guide-describe-${label}`"
+          :id="`vmlb-guide-describe-${i}`"
           v-model="draft[label]"
           @input="edited.add(label)"
           :name="`description-${label}`"

@@ -89,6 +89,13 @@ tagged `vX.Y.Z`.
   `check`. In Do the rest the item on screen shows the AI's waiting label as
   a proposal, as the panel did.
 
+### Changed
+
+- **In Do the rest, the item on screen shows only the AI label from the
+  prompt version and model in use**, as Try it does since 0.16.0's council
+  fixes. An older version's answer is not offered there, so a label picked on
+  the item stays the student's own.
+
 ## [0.16.0] - 2026-11-25
 
 ### Added

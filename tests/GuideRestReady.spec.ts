@@ -1,6 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import AnnotationWorkspace from '../src/components/AnnotationWorkspace.vue'
+import LabellingGuide from '../src/components/LabellingGuide.vue'
 import type { AnnotationStats, AnnotationTask, LlmEstimate, LlmJob, LlmSuggestion, MLAdapter } from '../src/types'
 import { createTestAdapter } from './testAdapter'
 import { llmAgreement, llmMethods, llmStatus, llmSuggestion, refusal } from './fixtures/llm'
@@ -411,6 +412,18 @@ describe('step 5, Do the rest: when the AI has finished', () => {
     await wrapper.find('input[type="number"]').setValue(5)
     await click(wrapper, 'Work out the cost')
     expect(adapter.estimateLlmAnnotation).toHaveBeenLastCalledWith('ds-1', ids(12, 17))
+    wrapper.unmount()
+  })
+
+  it("tells the workspace only of the item's AI label from the prompt version and model in use", async () => {
+    const current = llmSuggestion({ id: 'now', task_id: 'p1', label: 'Civil' })
+    const older = llmSuggestion({ id: 'old', task_id: item.id, prompt_version: -1 })
+    const otherModel = llmSuggestion({ id: 'other', task_id: item.id, model: 'gpt-x' })
+    const { wrapper } = await mounted({ overrides: { listLlmSuggestions: vi.fn().mockResolvedValue([current, older, otherModel]) } })
+
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
+    const emitted = wrapper.findComponent(LabellingGuide).emitted('suggestions') as unknown[][]
+    expect((emitted.at(-1)![0] as LlmSuggestion[]).map((s) => s.id)).toEqual(['now'])
     wrapper.unmount()
   })
 
