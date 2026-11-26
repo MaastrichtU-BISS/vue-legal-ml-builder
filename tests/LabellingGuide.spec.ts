@@ -1895,6 +1895,18 @@ describe('step 4, Try it: improving the descriptions', () => {
     wrapper.unmount()
   })
 
+  it('returns to Connect AI with the reason when saving the descriptions is refused for the key', async () => {
+    const updateLlmPrompt = vi.fn().mockRejectedValue(refusal('The LLM service rejected the API key.', 'llm_failed'))
+    const { wrapper } = await improving({ updateLlmPrompt })
+
+    await click(wrapper, 'Save descriptions')
+    await flushPromises()
+
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+    expect(alerts(wrapper).join(' ')).toContain('The AI key stopped working: The LLM service rejected the API key.')
+    wrapper.unmount()
+  })
+
   it('shows Saving… while it saves, and the reason when the server refuses', async () => {
     let refuse: (err: Error) => void = () => undefined
     const updateLlmPrompt = vi.fn(() => new Promise<never>((_resolve, reject) => { refuse = reject }))

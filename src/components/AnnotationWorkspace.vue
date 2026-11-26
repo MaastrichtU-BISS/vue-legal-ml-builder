@@ -199,6 +199,8 @@ const proposals = computed<Proposal[]>(() =>
 const reviewing = ref(false)
 /** The guide's "Check 10 at random first": the AI's labels the review goes through. */
 const reviewCheck = ref<LlmSuggestion[] | null>(null)
+/** A new check starts the review screen afresh, even when one is already open. */
+const reviewSession = ref(0)
 const guideRef = ref<{ focusHeading: () => void } | null>(null)
 const canReview = computed(
   () => !!adapter.value?.pageAnnotationTasks && !!props.datasetId && !!controls.value && annotated.value > 0,
@@ -218,6 +220,7 @@ async function closeReview() {
 function onGuideCheck(list: LlmSuggestion[]) {
   if (!list.length) return
   reviewCheck.value = list
+  reviewSession.value += 1
   reviewing.value = true
 }
 
@@ -318,6 +321,9 @@ async function onRejectSuggestion() {
     await adapter.value!.rejectLlmSuggestion!(rejected.id)
     suggestions.value = suggestions.value.filter((s) => s.id !== rejected.id)
     notice.value = 'Suggestion rejected. Choose a label yourself.'
+    // The guide reads again what waits, so Do the rest's count and its check
+    // no longer offer the rejected label.
+    labelsVersion.value += 1
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to reject the suggestion'
   }
@@ -432,6 +438,7 @@ async function onLabelHoldout() {
     </div>
     <LabelReview
       v-if="reviewing && adapter && datasetId"
+      :key="reviewSession"
       :adapter="adapter"
       :project-id="projectId"
       :dataset-id="datasetId"

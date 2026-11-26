@@ -100,6 +100,17 @@ tagged `vX.Y.Z`.
   answer".
 - **A job left running is forgotten only when the server says the job is not
   found** (a 404, or "Job not found"), not on another not-found refusal.
+- **Rejecting the AI's label on the item in Do the rest updates the step**:
+  the guide reads again what waits, so the rejected label is no longer counted
+  in "Accept N AI labels" or picked for Check 10 at random.
+- **Pressing "Check 10 at random first" again starts the review screen afresh**
+  on the new 10, instead of showing a new label beside the old item's text.
+- **Leaving Do the rest drops its estimate**, so after Connect AI the cost and
+  what is left this month are worked out again for the key in use. A finished
+  or stopped job is forgotten when the model changes.
+- **The provider refusing the key while saving improved descriptions returns
+  to Connect AI**, and an earlier refusal's message is never read as a later
+  one's: the guide reads the code and message of the same request.
 
 ## [0.16.0] - 2026-11-25
 

@@ -2,6 +2,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import AnnotationWorkspace from '../src/components/AnnotationWorkspace.vue'
 import LabellingGuide from '../src/components/LabellingGuide.vue'
+import { AnnotatorView } from 'legal-annotation-kit'
 import type { AnnotationStats, AnnotationTask, LlmEstimate, LlmJob, LlmSuggestion, MLAdapter } from '../src/types'
 import { createTestAdapter } from './testAdapter'
 import { llmAgreement, llmMethods, llmStatus, llmSuggestion, refusal } from './fixtures/llm'
@@ -467,6 +468,50 @@ describe('step 5, Do the rest: when the AI has finished', () => {
     wrapper.unmount()
   })
 
+  it("reads what waits again when the AI's label on the item below is rejected, so it isn't counted or offered", async () => {
+    const onScreen = llmSuggestion({ id: 'onscreen', task_id: item.id, label: 'Civil' })
+    let waiting = [...twelve, onScreen]
+    const listLlmSuggestions = suggestionList(() => waiting)
+    const rejectLlmSuggestion = vi.fn(async (id: string) => {
+      waiting = waiting.filter((s) => s.id !== id)
+      return {}
+    })
+    const { wrapper } = await mounted({
+      overrides: {
+        listLlmSuggestions,
+        rejectLlmSuggestion: rejectLlmSuggestion as MLAdapter['rejectLlmSuggestion'],
+        listAnnotationTasks: vi.fn().mockResolvedValue([item, ...Array.from({ length: 28 }, (_, i) => pendingTask(i))]),
+      },
+    })
+    expect(button(wrapper, 'Accept 13 AI labels')).toBeDefined()
+
+    wrapper.findComponent(AnnotatorView).vm.$emit('proposal-rejected', { proposal: { id: 'onscreen' } })
+    await flushPromises()
+
+    expect(rejectLlmSuggestion).toHaveBeenCalledWith('onscreen')
+    expect(button(wrapper, 'Accept 12 AI labels')).toBeDefined()
+    expect(button(wrapper, 'Accept 13 AI labels')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('starts the review screen afresh when Check 10 at random is pressed again while it is open', async () => {
+    const { adapter, wrapper } = await mounted({ overrides: { listLlmSuggestions: vi.fn().mockResolvedValue(twelve) } })
+    const opened = () => vi.mocked(adapter.getAnnotationAssignment).mock.calls.map(([id]) => id).at(-1)
+    const checks = () => wrapper.findComponent(LabellingGuide).emitted('check') as LlmSuggestion[][][]
+
+    await click(wrapper, 'Check 10 at random first')
+    const review = () => wrapper.find('section[aria-label="Check the AI\'s labels"]')
+    await review().findAll('button').find((b) => b.text() === 'Accept')!.trigger('click')
+    await flushPromises()
+
+    await click(wrapper, 'Check 10 at random first')
+    const latest = checks().at(-1)![0]
+    expect(opened()).toBe(latest[0].task_id)
+    expect(review().find('h2').text()).toBe("Check 10 of the AI's labels")
+    expect(document.activeElement).toBe(review().find('h2').element)
+    wrapper.unmount()
+  })
+
   it('opens the review screen on 10 of the AI labels picked at random, where each must be accepted', async () => {
     const { adapter, wrapper } = await mounted({ overrides: { listLlmSuggestions: vi.fn().mockResolvedValue(twelve) } })
 
@@ -633,6 +678,61 @@ describe('out of tokens or a failed key: back to Connect AI', () => {
     expect(localStorage.getItem('vmlb-guide-job:ds-1')).toBe('job-1')
     wrapper.unmount()
     localStorage.removeItem('vmlb-guide-job:ds-1')
+  })
+
+  it('works the cost out again for the new key after the allowance ran out at Start, instead of the old estimate', async () => {
+    let saved = false
+    const own = llmStatus({ mode: 'byok', remaining_tokens: null, key: { base_url: 'https://openrouter.ai/api/v1', model: 'mistral-small' } })
+    const { wrapper } = await mounted({
+      overrides: {
+        getLlmStatus: vi.fn(async () => (saved ? own : llmStatus())),
+        saveLlmKey: vi.fn(async () => {
+          saved = true
+          return { base_url: 'https://openrouter.ai/api/v1', model: 'mistral-small' }
+        }),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate()),
+        startLlmAnnotation: vi.fn().mockRejectedValue(refusal("You've reached the monthly limit. Add your own API key to continue.", 'budget_exhausted')),
+      },
+    })
+    await click(wrapper, 'Work out the cost')
+    await click(wrapper, 'Start labelling 28 items')
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+
+    await wrapper.find('input[type="password"]').setValue('sk-own')
+    await wrapper.find('form.vmlb-guide-key').trigger('submit')
+    await flushPromises()
+
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
+    expect(button(wrapper, 'Work out the cost')).toBeDefined()
+    expect(button(wrapper, 'Start labelling 28 items')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it("starts Do the rest afresh, not on the old model's stopped job, once a key for another model passes its check", async () => {
+    let saved = false
+    const own = (model: string) => llmStatus({ mode: 'byok', model, remaining_tokens: null, key: { base_url: 'https://openrouter.ai/api/v1', model } })
+    localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
+    const { wrapper } = await mounted({
+      overrides: {
+        getLlmStatus: vi.fn(async () => (saved ? own('gpt-x') : own('mistral-small'))),
+        saveLlmKey: vi.fn(async () => {
+          saved = true
+          return { base_url: 'https://openrouter.ai/api/v1', model: 'gpt-x' }
+        }),
+        getLlmAgreement: vi.fn(async () => (saved ? llmAgreement({ ...passed, model: 'gpt-x' }) : passed)),
+        getLlmJob: vi.fn().mockResolvedValue({ status: 'failed', total: 28, done: 9, created: 9, error: 'The LLM service rejected the API key.' }),
+      },
+    })
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+
+    await wrapper.find('input[type="password"]').setValue('sk-new')
+    await wrapper.find('form.vmlb-guide-key').trigger('submit')
+    await flushPromises()
+
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
+    expect(alerts(wrapper).join(' ')).not.toContain('Labelling stopped after 9 of 28')
+    expect(button(wrapper, 'Work out the cost')).toBeDefined()
+    wrapper.unmount()
   })
 
   it('stays in Try it when the AI only failed to answer', async () => {

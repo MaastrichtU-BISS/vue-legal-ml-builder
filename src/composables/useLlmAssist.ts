@@ -26,6 +26,8 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   const error = ref<string | null>(null)
   /** The refusal's `code` behind `error`, when the adapter gave one. */
   const errorCode = ref<string | null>(null)
+  /** The message of the refusal `errorCode` came with, whichever ref shows it. */
+  const errorMessage = ref<string | null>(null)
   const notice = ref('')
   const isBusy = ref(false)
   /** The monthly limit of the shared key is used up. */
@@ -76,6 +78,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     isBusy.value = true
     error.value = null
     errorCode.value = null
+    errorMessage.value = null
     errorRef.value = null
     notice.value = ''
     try {
@@ -84,6 +87,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
       const refusal = err as LlmRefusalError
       errorRef.value = err instanceof Error ? err.message : fallback
       errorCode.value = refusal?.code ?? null
+      errorMessage.value = errorRef.value
       if (refusal?.code === 'budget_exhausted') budgetExhausted.value = true
       if (STATUS_CODES.includes(refusal?.code ?? '')) await loadStatus(datasetId).catch(() => undefined)
     } finally {
@@ -285,7 +289,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   onUnmounted(stopJob)
 
   return {
-    status, suggestions, agreement, prompt, promptError, error, errorCode, notice, isBusy, budgetExhausted, hasAccess, ready,
+    status, suggestions, agreement, prompt, promptError, error, errorCode, errorMessage, notice, isBusy, budgetExhausted, hasAccess, ready,
     estimate, job, jobId, acceptedCount,
     refresh, refreshProgress, saveKey, deleteKey, acknowledge, suggest, bulkAccept, loadPrompt, savePrompt,
     suggestOne, suggestError,

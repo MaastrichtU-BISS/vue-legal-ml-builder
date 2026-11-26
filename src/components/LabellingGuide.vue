@@ -772,14 +772,30 @@ watch(() => llm.job.value?.status, (value) => {
 
 // A key the provider refused, or one that can't be used any more, while the
 // AI is in use: back to Connect AI with the reason.
-watch([llm.errorCode, llm.error, llm.suggestError], ([code, error, suggestError]) => {
+// The code and message are the same request's, so an earlier refusal's message
+// can't be read as this one's (and a refused prompt save counts too).
+watch([llm.errorCode, llm.errorMessage], ([code, message]) => {
   if (step.value !== 'try' && step.value !== 'rest') return
-  const reason = keyFailureReason(code, error ?? suggestError)
+  const reason = keyFailureReason(code, message)
   if (reason) keyFailure.value = reason
 })
+// Leaving Do the rest (to Connect AI, say) drops its estimate: the cost and
+// what is left this month are worked out again for the key in use on return.
 watch(step, (value) => {
-  if (value !== 'rest') restError.value = null
+  if (value === 'rest') return
+  restError.value = null
+  llm.clearEstimate()
 })
+// A finished or stopped job was the old model's: a new model starts Do the
+// rest afresh rather than on that job's outcome.
+watch(
+  () => inUse.value.model,
+  (model, previous) => {
+    const jobStatus = llm.job.value?.status
+    if (!previous || model === previous || !jobStatus || jobStatus === 'queued' || jobStatus === 'running') return
+    llm.clearJob()
+  },
+)
 // Also when the guide finishes loading: a Dataset that became a Do the rest
 // candidate while it loaded would otherwise never read what is left.
 watch([restCandidate, loadState], ([candidate, state], [wasCandidate, wasState]) => {
