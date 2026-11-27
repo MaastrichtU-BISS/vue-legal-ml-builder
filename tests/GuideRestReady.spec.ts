@@ -886,3 +886,265 @@ describe('step 6, Ready to train', () => {
     wrapper.unmount()
   })
 })
+
+describe('Do the rest follow-ups (BAIGLE #213)', () => {
+  const twelve = Array.from({ length: 12 }, (_, i) => aiLabel(i))
+
+  it("still chooses the items and the cost after Skip on the item Try it's suggestion waits for", async () => {
+    let passedNow = false
+    const fromTry = llmSuggestion({ id: 'try', task_id: item.id, label: 'Civil' })
+    let created = false
+    const adapter = createTestAdapter({
+      pageAnnotationTasks: vi.fn(async (_projectId: string, filter: { label?: string }) =>
+        filter.label !== undefined ? { tasks: [], total: 6 } : { tasks: [], total: 0 },
+      ),
+      listAnnotationTasks: vi.fn().mockResolvedValue([item, ...Array.from({ length: 27 }, (_, i) => pendingTask(i + 1))]),
+      ...llmMethods({
+        getLlmAgreement: vi.fn(async () =>
+          passedNow ? passed : llmAgreement({ model: 'mistral-small', prompt_version: 0, checked: 29, agreed: 26, rate: 0.9 }),
+        ),
+        createLlmSuggestions: vi.fn(async () => {
+          created = true
+          return { suggestions: [fromTry], skipped: 0, invalid: 0 }
+        }),
+        listLlmSuggestions: vi.fn(async () => (created ? [fromTry] : [])),
+      }),
+    })
+    const wrapper = mount(LabellingGuide, {
+      props: {
+        adapter, projectId: 'p1', datasetId: 'ds-1', labels: ['Civil', 'Criminal'], inUse: [],
+        stats: { total: 40, annotated: 12, percentage: 30 }, statsLoading: false, labelsVersion: 0, currentTaskId: item.id,
+      },
+      attachTo: document.body,
+    })
+    await flushPromises()
+    expect(currentStep(wrapper as unknown as Wrapper).text()).toContain('Try it')
+
+    // A label saved elsewhere passes the check: the guide moves on with Try it's suggestion still waiting.
+    passedNow = true
+    await wrapper.setProps({ labelsVersion: 1 })
+    await flushPromises()
+    expect(currentStep(wrapper as unknown as Wrapper).text()).toContain('Do the rest')
+    expect(button(wrapper as unknown as Wrapper, 'Work out the cost')).toBeDefined()
+
+    // Skip: the next item comes on screen.
+    await wrapper.setProps({ currentTaskId: 'p1' })
+    await flushPromises()
+    expect(button(wrapper as unknown as Wrapper, 'Work out the cost')).toBeDefined()
+    expect(button(wrapper as unknown as Wrapper, 'Accept 1 AI label')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('moves focus back to the title after the last item of Check 10', async () => {
+    const { wrapper } = await mounted({ overrides: { listLlmSuggestions: vi.fn().mockResolvedValue([aiLabel(0), aiLabel(1)]) } })
+
+    await click(wrapper, 'Check all 2 first')
+    const review = () => wrapper.find('section[aria-label="Check the AI\'s labels"]')
+    for (let i = 0; i < 2; i++) {
+      const accept = review().findAll('button').find((b) => b.text() === 'Accept')!
+      ;(accept.element as HTMLButtonElement).focus()
+      await accept.trigger('click')
+      await flushPromises()
+    }
+
+    expect(review().text()).toContain('That was the last one.')
+    expect(document.activeElement).toBe(review().find('h2').element)
+    wrapper.unmount()
+  })
+
+  it('without a list of the items left, goes back to the waiting AI labels when an estimate finds nothing more to label', async () => {
+    const { wrapper } = await mounted({
+      overrides: {
+        listAnnotationTasks: undefined,
+        listLlmSuggestions: vi.fn().mockResolvedValue(twelve),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 0 })),
+      },
+    })
+
+    await click(wrapper, 'Let the AI label more first')
+    await click(wrapper, 'Work out the cost')
+
+    expect(button(wrapper, 'Accept 12 AI labels')).toBeDefined()
+    // Nothing more for the AI to label: no button that would do nothing.
+    expect(button(wrapper, 'Let the AI label more first')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it("without a list of the items left, offers Try it's waiting suggestion when an estimate finds nothing more to label", async () => {
+    const fromTry = llmSuggestion({ id: 'try', task_id: item.id, label: 'Civil' })
+    const { wrapper } = await mounted({
+      overrides: {
+        listAnnotationTasks: undefined,
+        listLlmSuggestions: vi.fn().mockResolvedValue([fromTry]),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 0 })),
+      },
+    })
+    expect(button(wrapper, 'Accept 1 AI label')).toBeUndefined()
+
+    await click(wrapper, 'Work out the cost')
+
+    expect(button(wrapper, 'Accept 1 AI label')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('offers the label a finished job made for the item on screen, not the choice of items again', async () => {
+    let finished = false
+    const made = llmSuggestion({ id: 'made', task_id: item.id, label: 'Civil' })
+    const { wrapper } = await mounted({
+      overrides: {
+        listAnnotationTasks: vi.fn().mockResolvedValue([item, ...Array.from({ length: 27 }, (_, i) => pendingTask(i + 1))]),
+        listLlmSuggestions: vi.fn(async () => (finished ? [made] : [])),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 1 })),
+        startLlmAnnotation: vi.fn().mockResolvedValue({ job_id: 'job-1', estimate: estimate({ tasks: 1 }) }),
+        getLlmJob: vi.fn(async () => {
+          finished = true
+          return { status: 'completed', total: 1, done: 1, created: 1 }
+        }),
+      },
+    })
+
+    await wrapper.find('input[type="radio"][value="next"]').setValue(true)
+    await wrapper.find('input[type="number"]').setValue(1)
+    await flushPromises()
+    await click(wrapper, 'Work out the cost')
+    await click(wrapper, 'Start labelling 1 item')
+    await poll()
+
+    expect(button(wrapper, 'Accept 1 AI label')).toBeDefined()
+    expect(button(wrapper, 'Work out the cost')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it("doesn't count Try it's label as the work of a finished job that made none", async () => {
+    const tried = llmSuggestion({ id: 'tried', task_id: item.id, label: 'Civil' })
+    const { wrapper } = await mounted({
+      overrides: {
+        listAnnotationTasks: vi.fn().mockResolvedValue([item, ...Array.from({ length: 27 }, (_, i) => pendingTask(i + 1))]),
+        listLlmSuggestions: vi.fn().mockResolvedValue([tried]),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 1 })),
+        startLlmAnnotation: vi.fn().mockResolvedValue({ job_id: 'job-1', estimate: estimate({ tasks: 1 }) }),
+        getLlmJob: vi.fn().mockResolvedValue({ status: 'completed', total: 1, done: 1, created: 0, invalid: 1 }),
+      },
+    })
+
+    await wrapper.find('input[type="radio"][value="next"]').setValue(true)
+    await wrapper.find('input[type="number"]').setValue(1)
+    await flushPromises()
+    await click(wrapper, 'Work out the cost')
+    await click(wrapper, 'Start labelling 1 item')
+    await poll()
+
+    expect(button(wrapper, 'Accept 1 AI label')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('drops the old model\'s job when it finishes in the same read that brings the new model', async () => {
+    localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
+    let phase: 'first' | 'other' = 'first'
+    let reads = 0
+    const { wrapper } = await mounted({
+      overrides: {
+        getLlmStatus: vi.fn(async () =>
+          phase === 'first'
+            ? llmStatus()
+            : llmStatus({ mode: 'byok', model: 'gpt-x', remaining_tokens: null, key: { base_url: 'https://openrouter.ai/api/v1', model: 'gpt-x' } }),
+        ),
+        getLlmAgreement: vi.fn(async () => (phase === 'other' ? llmAgreement({ ...passed, model: 'gpt-x' }) : passed)),
+        getLlmJob: vi.fn(async () => {
+          reads += 1
+          if (reads === 1) return { status: 'running', total: 28, done: 9, created: 9 }
+          phase = 'other'
+          return { status: 'failed', total: 28, done: 9, created: 9, error: 'The LLM service returned an error.' }
+        }),
+      },
+    })
+    await poll()
+
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
+    expect(alerts(wrapper).join(' ')).not.toContain('Labelling stopped after 9 of 28')
+    expect(button(wrapper, 'Work out the cost')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('keeps the estimate when Try again on the sentences alert reads the prompt again and it fails again', async () => {
+    localStorage.setItem('vmlb-guide-descriptions:ds-1', JSON.stringify({ Civil: 'Private disputes.', Criminal: 'Offences.' }))
+    const { wrapper } = await mounted({
+      overrides: {
+        getLlmPrompt: vi.fn().mockRejectedValue(new Error('Server error')),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate()),
+      },
+    })
+    expect(alerts(wrapper).join(' ')).toContain("their sentences aren't saved yet")
+
+    await click(wrapper, 'Work out the cost')
+    expect(guide(wrapper).text()).toContain('About 42,000 tokens.')
+
+    await click(wrapper, 'Try again')
+    expect(alerts(wrapper).join(' ')).toContain("their sentences aren't saved yet")
+    expect(guide(wrapper).text()).toContain('About 42,000 tokens.')
+    wrapper.unmount()
+  })
+
+  it('drops a stopped job once a key for another model is saved, even after a time with no model', async () => {
+    localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
+    let phase: 'first' | 'none' | 'other' = 'first'
+    let reads = 0
+    const { wrapper } = await mounted({
+      overrides: {
+        getLlmStatus: vi.fn(async () =>
+          phase === 'first'
+            ? llmStatus()
+            : phase === 'none'
+              ? llmStatus({ mode: 'none', model: null, shared_key_allowed: false })
+              : llmStatus({ mode: 'byok', model: 'gpt-x', remaining_tokens: null, key: { base_url: 'https://openrouter.ai/api/v1', model: 'gpt-x' } }),
+        ),
+        saveLlmKey: vi.fn(async () => {
+          phase = 'other'
+          return { base_url: 'https://openrouter.ai/api/v1', model: 'gpt-x' }
+        }),
+        getLlmAgreement: vi.fn(async () => (phase === 'other' ? llmAgreement({ ...passed, model: 'gpt-x' }) : passed)),
+        // Running while the access goes; stopped once it has gone.
+        getLlmJob: vi.fn(async () => {
+          reads += 1
+          if (reads === 1) return { status: 'running', total: 28, done: 9, created: 9 }
+          phase = 'none'
+          return { status: 'failed', total: 28, done: 9, created: 9, error: 'The LLM service returned an error.' }
+        }),
+      },
+    })
+    await poll()
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+
+    await wrapper.find('input[type="password"]').setValue('sk-new')
+    await wrapper.find('form.vmlb-guide-key').trigger('submit')
+    await flushPromises()
+
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
+    expect(alerts(wrapper).join(' ')).not.toContain('Labelling stopped after 9 of 28')
+    expect(button(wrapper, 'Work out the cost')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('drops a stopped job once a new prompt version is saved on the same model', async () => {
+    localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
+    localStorage.setItem('vmlb-guide-descriptions:ds-1', JSON.stringify({ Civil: 'Private disputes.', Criminal: 'Offences.' }))
+    let saved = false
+    const { wrapper } = await mounted({
+      overrides: {
+        updateLlmPrompt: vi.fn(async (_id: string, edit: { template: string; definitions: Record<string, string> }) => {
+          saved = true
+          return { version: 1, ...edit }
+        }),
+        getLlmAgreement: vi.fn(async () => (saved ? llmAgreement({ ...passed, prompt_version: 1 }) : passed)),
+        getLlmJob: vi.fn().mockResolvedValue({ status: 'failed', total: 28, done: 9, created: 9, error: 'The LLM service returned an error.' }),
+      },
+    })
+    await flushPromises()
+
+    expect(saved).toBe(true)
+    expect(currentStep(wrapper).text()).toContain('Do the rest')
+    expect(alerts(wrapper).join(' ')).not.toContain('Labelling stopped after 9 of 28')
+    expect(button(wrapper, 'Work out the cost')).toBeDefined()
+    wrapper.unmount()
+  })
+})

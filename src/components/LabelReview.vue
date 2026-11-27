@@ -120,12 +120,13 @@ async function answer(action: () => Promise<void>, done: string) {
   }
   if (index.value + 1 >= total.value) {
     notice.value = `${done} That was the last one.`
-    return
+  } else {
+    notice.value = done
+    index.value += 1
+    await load()
   }
-  notice.value = done
-  index.value += 1
-  await load()
-  // The answered item's controls are gone with it: focus goes back to the heading, not the page.
+  // The answered item's controls are gone with it, the last one's too: focus
+  // goes back to the heading, not the page.
   await nextTick()
   if (!document.activeElement || document.activeElement === document.body) title.value?.focus()
 }

@@ -26,8 +26,8 @@ const props = defineProps<{
   job: LlmJob | null
   /** The AI's labels waiting for the student, from the passed check's model and prompt. */
   aiLabels: number
-  /** One of those is the suggestion for the item on screen, left from Try it. */
-  onScreenWaiting?: boolean
+  /** Of those, the suggestions left from Try it (and the one for the item on screen). */
+  tryWaiting?: number
   /** The AI's labels can be checked one by one first. */
   canCheck: boolean
   /** Working out the cost. */
@@ -57,23 +57,32 @@ watch([scope, nextCount], () => emit('change'))
 
 /** The AI's labels are waiting, but the student chose to let it label more first. */
 const wantMore = ref(false)
-/** Items the AI can still label, beside those waiting to be accepted. */
-const unlabelled = computed(() => props.labellable ?? (props.pending === null ? 0 : Math.max(props.pending - props.aiLabels, 0)))
-/** The AI has labelled items: waiting labels beyond Try it's suggestion for
- * the item on screen. That one alone doesn't count, so a student arriving from
- * Try it still chooses the items and sees the cost first, unless there is
- * nothing left for the AI to label. */
+/** Nothing is left for the AI to label, as the lists or the last estimate say. */
+const nothingMore = computed(() => props.labellable === 0 || props.estimate?.tasks === 0)
+/** Items the AI can still label, beside those waiting to be accepted. None once
+ * an estimate found nothing more, so "Let the AI label more first" goes. */
+const unlabelled = computed(() =>
+  nothingMore.value ? 0 : props.labellable ?? (props.pending === null ? 0 : Math.max(props.pending - props.aiLabels, 0)),
+)
+/** A finished job made labels: its one item may be the one on screen. */
+const jobMade = computed(() => props.job?.status === 'completed' && (props.job.created ?? props.job.done) > 0)
+/** The AI has labelled items: waiting labels beyond Try it's suggestions, or a
+ * finished job's that made some. Try it's alone don't count, so a student
+ * arriving from Try it still chooses the items and sees the cost first, unless
+ * there is nothing left for the AI to label. */
 const labelsReady = computed(
-  () => props.aiLabels > 0 && (props.labellable === 0 || props.aiLabels - (props.onScreenWaiting ? 1 : 0) > 0),
+  () =>
+    props.aiLabels > 0 &&
+    (nothingMore.value || jobMade.value || props.aiLabels - (props.tryWaiting ?? 0) > 0),
 )
 const view = computed(() => {
   const status = props.job?.status
   if (status === 'queued' || status === 'running') return 'running'
   if (status === 'failed') return 'failed'
-  if (labelsReady.value && (!wantMore.value || props.labellable === 0)) return 'done'
+  if (labelsReady.value && (!wantMore.value || nothingMore.value)) return 'done'
   // What is left already has the AI's answer: only the student can label it.
   // An estimate covering no items says the same, if the lists changed meanwhile.
-  if (props.labellable === 0 || props.estimate?.tasks === 0) return 'left'
+  if (nothingMore.value) return 'left'
   return 'choose'
 })
 

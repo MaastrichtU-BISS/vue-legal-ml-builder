@@ -635,8 +635,12 @@ async function saveDescriptions(definitions: Record<string, string>) {
 // Step 5, Do the rest: an estimate, the job, then an explicit accept.
 // ---------------------------------------------------------------------------
 
-/** Try it's suggestion for the item on screen is among them: not the AI's own labelling. */
-const onScreenWaiting = computed(() => !!props.currentTaskId && aiLabels.value.some((s) => s.task_id === props.currentTaskId))
+/** Of the AI's labels, those Try it asked for this visit or the one for the
+ * item on screen: not the AI's own labelling. Counted by what Try it asked, so
+ * a Skip that moves the item on doesn't turn its suggestion into one. */
+const tryWaiting = computed(
+  () => aiLabels.value.filter((s) => s.task_id === props.currentTaskId || asked.value.some((a) => a.id === s.id)).length,
+)
 const restEstimating = ref(false)
 /** Starting the job or accepting its labels. */
 const restBusy = ref(false)
@@ -708,8 +712,8 @@ async function estimateRest(scope: RestScope) {
   restError.value = null
   restNotice.value = ''
   try {
-    await llm.estimateJob(props.datasetId, () => restIds(scope))
-    restError.value = llm.error.value
+    // An estimate left behind (cleared or asked again) leaves the error alone.
+    if (await llm.estimateJob(props.datasetId, () => restIds(scope))) restError.value = llm.error.value
   } finally {
     restEstimating.value = false
   }
@@ -799,15 +803,30 @@ watch(step, (value) => {
   restError.value = null
   llm.clearEstimate()
 })
-// A finished or stopped job was the old model's: a new model starts Do the
-// rest afresh rather than on that job's outcome.
+// A finished or stopped job was the old model's, or the old prompt version's:
+// a new one starts Do the rest afresh rather than on that job's outcome. Each
+// is compared with the last one known, so a time with no model (or the prompt
+// still loading) in between still counts as a change. The job's status is
+// watched too, and the last known model kept while it runs: the read that ends
+// a job reads the new model before it shows the job as finished.
+const lastKnown: { model: string | null; promptVersion: number | null } = { model: null, promptVersion: null }
 watch(
-  () => inUse.value.model,
-  (model, previous) => {
-    const jobStatus = llm.job.value?.status
-    if (!previous || model === previous || !jobStatus || jobStatus === 'queued' || jobStatus === 'running') return
-    llm.clearJob()
+  () => [inUse.value.model, inUse.value.promptVersion, llm.job.value?.status] as const,
+  ([model, promptVersion, jobStatus]) => {
+    if (jobStatus === 'queued' || jobStatus === 'running') {
+      // Only the first known: a change seen while the job runs is compared once it ends.
+      if (lastKnown.model === null) lastKnown.model = model
+      if (lastKnown.promptVersion === null) lastKnown.promptVersion = promptVersion
+      return
+    }
+    const changed =
+      (model !== null && lastKnown.model !== null && model !== lastKnown.model) ||
+      (promptVersion !== null && lastKnown.promptVersion !== null && promptVersion !== lastKnown.promptVersion)
+    if (model !== null) lastKnown.model = model
+    if (promptVersion !== null) lastKnown.promptVersion = promptVersion
+    if (changed && jobStatus) llm.clearJob()
   },
+  { immediate: true },
 )
 // Also when the guide finishes loading: a Dataset that became a Do the rest
 // candidate while it loaded would otherwise never read what is left.
@@ -1011,7 +1030,7 @@ watch([stepView, showing], async ([next, state]) => {
             :estimate="llm.estimate.value"
             :job="llm.job.value"
             :ai-labels="aiLabels.length"
-            :on-screen-waiting="onScreenWaiting"
+            :try-waiting="tryWaiting"
             :can-check="!!adapter.confirmLlmSuggestion"
             :estimating="restEstimating"
             :busy="restBusy"

@@ -1,7 +1,8 @@
 import { flushPromises } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
+import { watch } from 'vue'
 import { useLlmAssist } from '../src/composables/useLlmAssist'
-import type { LlmStatus } from '../src/types'
+import type { LlmEstimate, LlmStatus } from '../src/types'
 import { createTestAdapter } from './testAdapter'
 import { llmMethods, llmStatus, llmSuggestion } from './fixtures/llm'
 
@@ -47,5 +48,84 @@ describe('useLlmAssist: reading the status', () => {
 
     expect(llm.status.value?.model).toBe('gpt-x')
     expect(llm.suggestions.value.map((s) => s.model)).toEqual(['gpt-x'])
+  })
+})
+
+describe('useLlmAssist: Do the rest (BAIGLE #213)', () => {
+  it('shows a finished job only once the suggestions it made are read', async () => {
+    let finished = false
+    const listLlmSuggestions = vi.fn(async () => (finished ? [llmSuggestion()] : []))
+    const getLlmJob = vi.fn(async () => {
+      finished = true
+      return { status: 'completed' as const, total: 1, done: 1, created: 1 }
+    })
+    const adapter = createTestAdapter(llmMethods({ listLlmSuggestions, getLlmJob }))
+    const llm = useLlmAssist(adapter)
+    await llm.refresh('ds-1')
+    const seen: number[] = []
+    watch(llm.job, (job) => {
+      if (job?.status === 'completed') seen.push(llm.suggestions.value.length)
+    }, { flush: 'sync' })
+
+    await llm.resumeJob('ds-1', 'job-1')
+
+    expect(seen).toEqual([1])
+  })
+
+  it('drops an estimate that comes back after it was cleared', async () => {
+    const reply = deferred<LlmEstimate>()
+    const adapter = createTestAdapter(llmMethods({ estimateLlmAnnotation: vi.fn(() => reply.promise) }))
+    const llm = useLlmAssist(adapter)
+    await llm.refresh('ds-1')
+
+    const asked = llm.estimateJob('ds-1', async () => ['t1'])
+    await flushPromises()
+    llm.clearEstimate()
+    reply.resolve({ tasks: 1, estimated_tokens: 100, remaining_tokens: 1000, within_budget: true, destination: 'openrouter.ai' })
+    await asked
+
+    expect(llm.estimate.value).toBeNull()
+  })
+
+  it('sends no estimate for one cleared while its items were still being listed', async () => {
+    const items = deferred<string[]>()
+    const estimateLlmAnnotation = vi.fn()
+    const adapter = createTestAdapter(llmMethods({ estimateLlmAnnotation }))
+    const llm = useLlmAssist(adapter)
+    await llm.refresh('ds-1')
+
+    const asked = llm.estimateJob('ds-1', () => items.promise)
+    llm.clearEstimate()
+    items.resolve(['t1'])
+
+    expect(await asked).toBe(false)
+    expect(estimateLlmAnnotation).not.toHaveBeenCalled()
+  })
+
+  it('leaves no error from an estimate that fails after it was cleared', async () => {
+    let fail!: (err: Error) => void
+    const estimateLlmAnnotation = vi.fn(() => new Promise<LlmEstimate>((_, reject) => { fail = reject }))
+    const adapter = createTestAdapter(llmMethods({ estimateLlmAnnotation }))
+    const llm = useLlmAssist(adapter)
+    await llm.refresh('ds-1')
+
+    const asked = llm.estimateJob('ds-1', async () => ['t1'])
+    await flushPromises()
+    llm.clearEstimate()
+    fail(new Error('Server error'))
+
+    expect(await asked).toBe(false)
+    expect(llm.error.value).toBeNull()
+  })
+
+  it('says an estimate that comes back in time is current', async () => {
+    const adapter = createTestAdapter(llmMethods({
+      estimateLlmAnnotation: vi.fn().mockResolvedValue({ tasks: 1, estimated_tokens: 100, remaining_tokens: 1000, within_budget: true, destination: 'openrouter.ai' }),
+    }))
+    const llm = useLlmAssist(adapter)
+    await llm.refresh('ds-1')
+
+    expect(await llm.estimateJob('ds-1', async () => ['t1'])).toBe(true)
+    expect(llm.estimate.value?.tasks).toBe(1)
   })
 })
