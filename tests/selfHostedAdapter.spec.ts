@@ -526,8 +526,31 @@ describe('too many requests (BAIGLE #224)', () => {
   })
 
   it('takes the body’s retry_after when Retry-After can’t be read', async () => {
-    stubFetch(() => new Response(JSON.stringify({ retry_after: 30 }), { status: 429, headers: { 'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT' } }))
+    stubFetch(() => new Response(JSON.stringify({ retry_after: 30 }), { status: 429, headers: { 'Retry-After': 'soon' } }))
     expect((await failure()).retryAfter).toBe(30)
+  })
+
+  it('reads a Retry-After given as an HTTP date', async () => {
+    const at = new Date(Date.now() + 125_000).toUTCString()
+    stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': at } }))
+    const err = await failure()
+    // An HTTP date has whole seconds, so up to a second less than 125.
+    expect(err.retryAfter).toBeGreaterThanOrEqual(124)
+    expect(err.retryAfter).toBeLessThanOrEqual(125)
+    expect(err.message).toBe('Too many requests just now. Try again in 3 minutes.')
+  })
+
+  it('says hours for a wait longer than an hour and a half', async () => {
+    stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': '86400' } }))
+    expect((await failure()).message).toBe('Too many requests just now. Try again in 24 hours.')
+  })
+
+  it('still says why and how long to wait when the body is JSON null', async () => {
+    stubFetch(() => new Response('null', { status: 429, headers: { 'Retry-After': '60' } }))
+    const err = await failure()
+    expect(err.status).toBe(429)
+    expect(err.retryAfter).toBe(60)
+    expect(err.message).toBe('Too many requests just now. Try again in 1 minute.')
   })
 
   it.each([['a string', '60'], ['a negative number', -5], ['null', null]])('ignores a retry_after that is %s', async (_, retryAfter) => {

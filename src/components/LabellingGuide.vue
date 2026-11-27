@@ -286,7 +286,7 @@ async function loadCounts(): Promise<Record<string, number> | null> {
   if (props.labels.length < 2) return findUsedLabels()
   const counted = await countsInOneRead()
   // Own keys only: a label named "constructor" with no items counts 0.
-  if (counted) return Object.fromEntries(props.labels.map((label) => [label, Object.hasOwn(counted, label) ? counted[label] : 0]))
+  if (counted) return Object.fromEntries(props.labels.map((label) => [label, Object.prototype.hasOwnProperty.call(counted, label) ? counted[label] : 0]))
   if (props.adapter.pageAnnotationTasks) {
     const totals = await Promise.all(
       props.labels.map((label) =>
@@ -328,7 +328,8 @@ async function load() {
   let running = false
   try {
     ;[running] = await Promise.all([announcedLoad ? false : loopRunning(), llm.refresh(props.datasetId)])
-    if (llm.error.value) throw new Error(llm.error.value)
+    // A refusal for too many requests keeps its wait (the host's code says so).
+    if (llm.error.value) throw Object.assign(new Error(llm.error.value), { status: llm.errorCode.value === 'rate_limited' ? 429 : undefined })
     perLabel.value = await loadCounts()
     staleNote.value = ''
     if (restCandidate.value) await loadRest()

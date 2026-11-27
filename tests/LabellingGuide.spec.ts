@@ -2377,6 +2377,19 @@ describe('counting labels in one read (BAIGLE #224)', () => {
     wrapper.unmount()
   })
 
+  it('keeps the wait when the AI help\'s own read hits too many requests while loading', async () => {
+    const refused = Object.assign(new Error('Too many requests just now. Try again in 2 minutes.'), { status: 429, code: 'rate_limited' })
+    const { wrapper } = guideWith(['Civil', 'Criminal'], {
+      getAnnotationLabelCounts: vi.fn().mockResolvedValue({ Civil: 1 }),
+      getLlmStatus: vi.fn().mockRejectedValue(refused),
+    })
+    await flushPromises()
+    expect(wrapper.find('.vmlb-guide-failed [role="alert"]').text()).toBe(
+      "Couldn't load your labelling progress. Too many requests just now. Try again in 2 minutes.",
+    )
+    wrapper.unmount()
+  })
+
   it('keeps the plain sentence when loading fails any other way', async () => {
     const { wrapper } = guideWith(['Civil', 'Criminal'], {
       getAnnotationLabelCounts: vi.fn().mockRejectedValue(Object.assign(new Error('Request failed: 500 Internal Server Error'), { status: 500 })),
