@@ -225,3 +225,34 @@ describe('NER hints from the file', () => {
     wrapper.unmount()
   })
 })
+
+describe('when the labels can’t be read (BAIGLE #224)', () => {
+  async function review(pageAnnotationTasks: ReturnType<typeof vi.fn>) {
+    const { default: LabelReview } = await import('../src/components/LabelReview.vue')
+    const adapter = createTestAdapter({ pageAnnotationTasks })
+    const wrapper = mount(LabelReview, {
+      props: { adapter, projectId: 'p1', datasetId: 'ds-1', labels: ['Civil', 'Criminal'], documentLabelMode: 'single' },
+      attachTo: document.body,
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('says to wait, in plain words, after too many requests', async () => {
+    const wrapper = await review(
+      vi.fn().mockRejectedValue(Object.assign(new Error('Too many requests just now. Try again in 2 minutes.'), { status: 429, retryAfter: 90 })),
+    )
+    expect(wrapper.text()).toContain('Too many requests just now. Try again in 2 minutes.')
+    expect(wrapper.text()).not.toContain('Request failed')
+    // Announced, as the guide's alerts are.
+    expect(wrapper.find('.vmlb-alert-error').attributes('role')).toBe('alert')
+    wrapper.unmount()
+  })
+
+  it('says it couldn’t load them instead of a bare status code', async () => {
+    const wrapper = await review(vi.fn().mockRejectedValue(new Error('Request failed: 500 Internal Server Error')))
+    expect(wrapper.text()).toContain("Couldn't load the labels. Try again.")
+    expect(wrapper.text()).not.toContain('Request failed')
+    wrapper.unmount()
+  })
+})

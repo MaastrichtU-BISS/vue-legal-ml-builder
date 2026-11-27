@@ -11,8 +11,38 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-27
+
+### Added
+
+- **`getAnnotationLabelCounts(projectId, datasetId)`**, an optional adapter
+  method that reads every label's count in one request. The self-hosted
+  adapter reads `GET /annotation/projects/<id>/queue/stats?dataset_id=<id>`
+  and answers null when the server leaves `label_counts` out or doesn't give
+  them by label (BAIGLE #224).
+
 ### Fixed
 
+- **The labelling guide counts labels in one request** (BAIGLE #224).
+  With `getAnnotationLabelCounts`, it reads the counts once on load and once
+  after each saved label, instead of once per label. A Dataset that names
+  fewer than two labels still pages its labelled items once on load, since a
+  label only on held-out items is in use too. Without it, or on a server that can't count this way, the guide counts
+  as before. When a refresh fails, the last counts stay, with "Counts may be
+  out of date. They refresh after your next label." until the next one works;
+  after too many requests, the note says how long to wait instead, and a guide
+  that can't load says it after "Couldn't load your labelling progress.". The
+  folded guide on phones marks the counts "may be out of date" too, and the
+  note is announced only with the count, not with Try it's or Do the rest's
+  updates. A label saved while the counts first load reads them again once
+  they have, and a label named like an object property (`constructor`) with
+  no items counts 0.
+- **Too many requests reads as plain words** (BAIGLE #224). The self-hosted
+  adapter turns a 429 without a reason from the server into "Too many requests
+  just now. Wait a minute and try again.", or "Try again in N minutes." from
+  `Retry-After` (or the body's `retry_after` without one), with `status` and
+  `retryAfter` on the error. Review labels shows it as an alert, and shows "Couldn't load the labels. Try again." instead of a bare
+  `Request failed:` for other failures.
 - **Do the rest holds steady around the AI's labels** (BAIGLE #213). A
   student arriving from Try it who presses Skip on the item its suggestion
   waits for still chooses the items and sees the cost, instead of being
@@ -838,7 +868,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.1...HEAD
+[0.17.1]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.14.0...v0.15.0

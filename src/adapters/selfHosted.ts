@@ -49,17 +49,47 @@ function buildHeaders(getAuthToken?: () => string | null | undefined, extra: Hea
   return headers
 }
 
+/** Seconds to wait: from a Retry-After header, given in seconds or as an HTTP
+ * date, else from the body's numeric `retry_after`; undefined when none is readable. */
+function retryAfterSeconds(res: Response, data: { retry_after?: unknown }): number | undefined {
+  const value = res.headers?.get?.('Retry-After')?.trim()
+  if (value && /^\d+$/.test(value)) return Number(value)
+  // An HTTP date names its day and month; a number that isn't whole seconds is no wait.
+  const at = value && /[A-Za-z]/.test(value) ? Date.parse(value) : NaN
+  if (Number.isFinite(at)) return Math.max(0, Math.ceil((at - Date.now()) / 1000))
+  const fromBody = data?.retry_after
+  return typeof fromBody === 'number' && Number.isFinite(fromBody) && fromBody >= 0 ? fromBody : undefined
+}
+
+/** A 429 the server didn't explain, in plain words. */
+function tooManyRequestsMessage(retryAfter?: number): string {
+  if (retryAfter === undefined) return 'Too many requests just now. Wait a minute and try again.'
+  // As the host words it: minutes up to an hour and a half, then hours.
+  if (retryAfter > 90 * 60) return `Too many requests just now. Try again in ${Math.ceil(retryAfter / 3600)} hours.`
+  const minutes = Math.max(1, Math.ceil(retryAfter / 60))
+  return `Too many requests just now. Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`
+}
+
 async function parseOrThrow(res: Response) {
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const error: RefusalError & LlmRefusalError & SummarizationError = new Error(data.error || `Request failed: ${res.status} ${res.statusText}`)
-    error.status = res.status
-    if (typeof data.field === 'string') error.field = data.field
-    if (typeof data.code === 'string') error.code = data.code
-    if (typeof data.destination === 'string') error.destination = data.destination
-    throw error
-  }
+  if (!res.ok) throwRefusal(res, data && typeof data === 'object' ? data : {})
   return data
+}
+
+/** The error for a refused request. A body that isn't an object (a JSON null)
+ * reads as no body, so the status and the wait still reach the caller. */
+function throwRefusal(res: Response, data: Record<string, any>): never {
+  const retryAfter = res.status === 429 ? retryAfterSeconds(res, data) : undefined
+  const fallback = res.status === 429 ? tooManyRequestsMessage(retryAfter) : `Request failed: ${res.status} ${res.statusText}`
+  const error: RefusalError & LlmRefusalError & SummarizationError = new Error(data.error || fallback)
+  error.status = res.status
+  if (retryAfter !== undefined) error.retryAfter = retryAfter
+  if (typeof data.field === 'string') error.field = data.field
+  if (typeof data.code === 'string') error.code = data.code
+  // A 429 from a proxy has no code: name it, so callers keyed on codes keep the wait.
+  else if (res.status === 429) error.code = 'rate_limited'
+  if (typeof data.destination === 'string') error.destination = data.destination
+  throw error
 }
 
 export function createSelfHostedAdapter(opts: SelfHostedAdapterOptions): MLAdapter {
@@ -269,6 +299,12 @@ export function createSelfHostedAdapter(opts: SelfHostedAdapterOptions): MLAdapt
       if (filter.offset !== undefined) params.set('offset', String(filter.offset))
       const data = await get(`/annotation/projects/${projectId}/tasks?${params}`)
       return { tasks: data.tasks, total: data.total ?? data.tasks.length }
+    },
+    async getAnnotationLabelCounts(projectId: Id, datasetId: Id) {
+      const params = new URLSearchParams({ dataset_id: String(datasetId) })
+      const data = await get(`/annotation/projects/${projectId}/queue/stats?${params}`)
+      const counts = data?.stats?.label_counts
+      return counts && typeof counts === 'object' && !Array.isArray(counts) ? (counts as Record<string, number>) : null
     },
 
     // Active learning

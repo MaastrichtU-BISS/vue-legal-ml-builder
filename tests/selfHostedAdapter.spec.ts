@@ -459,3 +459,122 @@ describe('createSelfHostedAdapter summarization methods', () => {
     expect(calls.map((c) => c.token)).toEqual(['Bearer stale', 'Bearer fresh'])
   })
 })
+
+describe('counting labels in one read (BAIGLE #224)', () => {
+  it('reads the label counts from the queue stats', async () => {
+    const calls = stubFetch(() =>
+      reply(200, { success: true, stats: { total: 9, pending: 4, annotated: 5, skipped: 0, percentage_complete: 55, label_counts: { Civil: 3, Tort: 2 } } }),
+    )
+    const counts = await createSelfHostedAdapter({ apiUrl: '/api' }).getAnnotationLabelCounts!('p1', 'd 1')
+    expect(calls[0].url).toBe('/api/annotation/projects/p1/queue/stats?dataset_id=d+1')
+    expect(counts).toEqual({ Civil: 3, Tort: 2 })
+  })
+
+  it('answers null when an older server leaves the counts out', async () => {
+    stubFetch(() => reply(200, { success: true, stats: { total: 9, pending: 4, annotated: 5, skipped: 0, percentage_complete: 55 } }))
+    await expect(createSelfHostedAdapter({ apiUrl: '/api' }).getAnnotationLabelCounts!('p1', 'd1')).resolves.toBeNull()
+  })
+
+  it('answers null when the counts come as a list, not by label', async () => {
+    stubFetch(() => reply(200, { success: true, stats: { total: 9, label_counts: [3, 2] } }))
+    await expect(createSelfHostedAdapter({ apiUrl: '/api' }).getAnnotationLabelCounts!('p1', 'd1')).resolves.toBeNull()
+  })
+})
+
+describe('too many requests (BAIGLE #224)', () => {
+  const failure = async () => {
+    try {
+      await createSelfHostedAdapter({ apiUrl: '/api' }).listDatasets()
+    } catch (err) {
+      return err as Error & { status?: number; retryAfter?: number }
+    }
+    throw new Error('expected a failure')
+  }
+
+  it('says to wait a minute when the server gives no reason and no wait', async () => {
+    stubFetch(() => new Response('Too Many Requests', { status: 429, statusText: 'TOO MANY REQUESTS' }))
+    const err = await failure()
+    expect(err.message).toBe('Too many requests just now. Wait a minute and try again.')
+    expect(err.status).toBe(429)
+    expect(err.retryAfter).toBeUndefined()
+  })
+
+  it('says how many minutes to wait from Retry-After, rounded up', async () => {
+    stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': '125' } }))
+    const err = await failure()
+    expect(err.message).toBe('Too many requests just now. Try again in 3 minutes.')
+    expect(err.retryAfter).toBe(125)
+  })
+
+  it('says 1 minute for a short wait', async () => {
+    stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': '20' } }))
+    expect((await failure()).message).toBe('Too many requests just now. Try again in 1 minute.')
+  })
+
+  it('keeps the server’s own reason', async () => {
+    stubFetch(() => new Response(JSON.stringify({ error: 'Slow down a little.' }), { status: 429, headers: { 'Retry-After': '60' } }))
+    const err = await failure()
+    expect(err.message).toBe('Slow down a little.')
+    expect(err.retryAfter).toBe(60)
+  })
+
+  it('takes the wait from the body’s retry_after when there is no Retry-After', async () => {
+    stubFetch(() => new Response(JSON.stringify({ code: 'rate_limited', retry_after: 150 }), { status: 429 }))
+    const err = await failure()
+    expect(err.message).toBe('Too many requests just now. Try again in 3 minutes.')
+    expect(err.retryAfter).toBe(150)
+  })
+
+  it('takes the body’s retry_after when Retry-After can’t be read', async () => {
+    stubFetch(() => new Response(JSON.stringify({ retry_after: 30 }), { status: 429, headers: { 'Retry-After': 'soon' } }))
+    expect((await failure()).retryAfter).toBe(30)
+  })
+
+  it('reads a Retry-After given as an HTTP date', async () => {
+    const at = new Date(Date.now() + 125_000).toUTCString()
+    stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': at } }))
+    const err = await failure()
+    // An HTTP date has whole seconds, so up to a second less than 125.
+    expect(err.retryAfter).toBeGreaterThanOrEqual(124)
+    expect(err.retryAfter).toBeLessThanOrEqual(125)
+    expect(err.message).toBe('Too many requests just now. Try again in 3 minutes.')
+  })
+
+  it('names a 429 without a code rate_limited, so callers keyed on codes keep the wait', async () => {
+    stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': '60' } }))
+    const err = (await failure()) as Error & { code?: string }
+    expect(err.code).toBe('rate_limited')
+  })
+
+  it.each([['-1'], ['1.5']])('ignores a Retry-After of %s and takes the body\'s wait', async (header) => {
+    stubFetch(() => new Response(JSON.stringify({ retry_after: 180 }), { status: 429, headers: { 'Retry-After': header } }))
+    const err = await failure()
+    expect(err.retryAfter).toBe(180)
+    expect(err.message).toBe('Too many requests just now. Try again in 3 minutes.')
+  })
+
+  it('says hours for a wait longer than an hour and a half', async () => {
+    stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': '86400' } }))
+    expect((await failure()).message).toBe('Too many requests just now. Try again in 24 hours.')
+  })
+
+  it('still says why and how long to wait when the body is JSON null', async () => {
+    stubFetch(() => new Response('null', { status: 429, headers: { 'Retry-After': '60' } }))
+    const err = await failure()
+    expect(err.status).toBe(429)
+    expect(err.retryAfter).toBe(60)
+    expect(err.message).toBe('Too many requests just now. Try again in 1 minute.')
+  })
+
+  it.each([['a string', '60'], ['a negative number', -5], ['null', null]])('ignores a retry_after that is %s', async (_, retryAfter) => {
+    stubFetch(() => new Response(JSON.stringify({ retry_after: retryAfter }), { status: 429 }))
+    const err = await failure()
+    expect(err.retryAfter).toBeUndefined()
+    expect(err.message).toBe('Too many requests just now. Wait a minute and try again.')
+  })
+
+  it('leaves other failures as they were', async () => {
+    stubFetch(() => new Response('', { status: 500, statusText: 'Internal Server Error' }))
+    expect((await failure()).message).toBe('Request failed: 500 Internal Server Error')
+  })
+})

@@ -2250,3 +2250,246 @@ describe('Try it follow-ups (BAIGLE #211)', () => {
     wrapper.unmount()
   })
 })
+
+describe('counting labels in one read (BAIGLE #224)', () => {
+  const STALE = 'Counts may be out of date. They refresh after your next label.'
+
+  function guideWith(labels: string[], overrides: Partial<MLAdapter>) {
+    const adapter = createTestAdapter({ pageAnnotationTasks: vi.fn().mockResolvedValue({ tasks: [], total: 0 }), ...llmMethods(), ...overrides })
+    const wrapper = mount(LabellingGuide, {
+      props: {
+        adapter, projectId: 'p1', datasetId: 'ds-1', labels, inUse: [],
+        stats: { total: 40, annotated: 3, percentage: 7 }, statsLoading: false, labelsVersion: 0,
+      },
+      attachTo: document.body,
+    })
+    return { adapter, wrapper }
+  }
+
+  async function save(wrapper: ReturnType<typeof guideWith>['wrapper'], times: number) {
+    for (let i = 1; i <= times; i++) {
+      await wrapper.setProps({ labelsVersion: (wrapper.props('labelsVersion') as number) + 1 })
+      await flushPromises()
+    }
+  }
+
+  it('reads every label’s count once on load and once per save, with no count per label', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValue({ Civil: 2, Criminal: 1 })
+    const { adapter, wrapper } = guideWith(['Civil', 'Criminal', 'Tort'], { getAnnotationLabelCounts })
+    await flushPromises()
+    await save(wrapper, 4)
+
+    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(1 + 4)
+    expect(getAnnotationLabelCounts).toHaveBeenCalledWith('p1', 'ds-1')
+    expect(adapter.pageAnnotationTasks).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('counts a label with none as 0', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValue({ Civil: 3 })
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    // Show it how: Civil has its three, Criminal none yet.
+    expect(wrapper.text()).toContain('Criminal 0 of 3')
+    expect(wrapper.text()).toContain('3 of 10 examples')
+    wrapper.unmount()
+  })
+
+  it('counts per label as before when the server can’t count them in one read', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValue(null)
+    const pageAnnotationTasks = vi.fn(async (_p: string, f: { label?: string }) => ({ tasks: [], total: f.label === 'Civil' ? 3 : 1 }))
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts, pageAnnotationTasks })
+    await flushPromises()
+    await save(wrapper, 1)
+
+    const perLabel = pageAnnotationTasks.mock.calls.filter(([, f]) => (f as { label?: string }).label !== undefined)
+    expect(perLabel).toHaveLength(2 * 2)
+    expect(wrapper.text()).toContain('4 of 10 examples')
+    wrapper.unmount()
+  })
+
+  it('on a Dataset that names fewer than two labels, still pages the labelled items once, held-out ones too, since the one read leaves them out', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValue({ Civil: 2 })
+    const pageAnnotationTasks = vi.fn().mockResolvedValue({
+      tasks: [{ id: 't1', annotation_label: 'Civil' }, { id: 't2', annotation_label: 'Tort' }],
+      total: 2,
+    })
+    const { wrapper } = guideWith([], { getAnnotationLabelCounts, pageAnnotationTasks })
+    await flushPromises()
+
+    expect(getAnnotationLabelCounts).not.toHaveBeenCalled()
+    expect(pageAnnotationTasks).toHaveBeenCalledTimes(1)
+    expect(pageAnnotationTasks.mock.calls[0][1]).toMatchObject({ includeHoldout: true })
+    expect(wrapper.text()).toContain('Tort')
+
+    await save(wrapper, 2)
+    expect(pageAnnotationTasks).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('marks the counts as out of date when a refresh fails, until the next one works', async () => {
+    const getAnnotationLabelCounts = vi
+      .fn()
+      .mockResolvedValueOnce({ Civil: 1, Criminal: 1 })
+      .mockRejectedValueOnce(Object.assign(new Error('Request failed: 500 Internal Server Error'), { status: 500 }))
+      .mockResolvedValue({ Civil: 2, Criminal: 1 })
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain(STALE)
+
+    await save(wrapper, 1)
+    // The last counts stay, marked, and the note is announced in the guide's one live region.
+    expect(wrapper.text()).toContain('2 of 10 examples')
+    expect(wrapper.find('.vmlb-guide-stale').text()).toBe(STALE)
+    expect(wrapper.findAll('[aria-live]')).toHaveLength(1)
+    expect(wrapper.find('[aria-live="polite"]').text()).toContain(STALE)
+
+    await save(wrapper, 1)
+    expect(wrapper.text()).not.toContain(STALE)
+    expect(wrapper.text()).toContain('3 of 10 examples')
+    wrapper.unmount()
+  })
+
+  const tooMany = () => Object.assign(new Error('Too many requests just now. Try again in 3 minutes.'), { status: 429, retryAfter: 150 })
+  const deferred = <T,>() => {
+    let resolve!: (value: T) => void
+    let reject!: (err: unknown) => void
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+    return { promise, resolve, reject }
+  }
+
+  it('counts a label named like an object property, with none, as 0', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValue({ Civil: 3 })
+    const { wrapper } = guideWith(['Civil', 'constructor'], { getAnnotationLabelCounts })
+    await flushPromises()
+    expect(wrapper.text()).toContain('constructor 0 of 3')
+    expect(wrapper.text()).toContain('3 of 10 examples')
+    expect(wrapper.text()).not.toContain('function')
+    wrapper.unmount()
+  })
+
+  it('keeps the wait in the error when loading hits too many requests', async () => {
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts: vi.fn().mockRejectedValue(tooMany()) })
+    await flushPromises()
+    expect(wrapper.find('.vmlb-guide-failed [role="alert"]').text()).toBe(
+      "Couldn't load your labelling progress. Too many requests just now. Try again in 3 minutes.",
+    )
+    wrapper.unmount()
+  })
+
+  it('keeps the wait when the AI help\'s own read hits too many requests while loading', async () => {
+    const refused = Object.assign(new Error('Too many requests just now. Try again in 2 minutes.'), { status: 429, code: 'rate_limited' })
+    const { wrapper } = guideWith(['Civil', 'Criminal'], {
+      getAnnotationLabelCounts: vi.fn().mockResolvedValue({ Civil: 1 }),
+      getLlmStatus: vi.fn().mockRejectedValue(refused),
+    })
+    await flushPromises()
+    expect(wrapper.find('.vmlb-guide-failed [role="alert"]').text()).toBe(
+      "Couldn't load your labelling progress. Too many requests just now. Try again in 2 minutes.",
+    )
+    wrapper.unmount()
+  })
+
+  it("says when the AI's progress couldn't be refreshed for too many requests, with the wait, until a refresh works", async () => {
+    const refused = Object.assign(new Error('Too many requests just now. Try again in 2 minutes.'), { status: 429, code: 'rate_limited' })
+    const getLlmAgreement = vi.fn().mockResolvedValueOnce(llmAgreement()).mockRejectedValueOnce(refused).mockResolvedValue(llmAgreement())
+    const { wrapper } = guideWith(['Civil', 'Criminal'], {
+      getAnnotationLabelCounts: vi.fn().mockResolvedValue({ Civil: 1, Criminal: 1 }),
+      getLlmAgreement,
+    })
+    await flushPromises()
+    expect(wrapper.find('.vmlb-guide-stale').exists()).toBe(false)
+
+    await save(wrapper, 1)
+    expect(wrapper.find('.vmlb-guide-stale').text()).toBe("The AI's progress may be out of date. Too many requests just now. Try again in 2 minutes.")
+
+    await save(wrapper, 1)
+    expect(wrapper.find('.vmlb-guide-stale').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the plain sentence when loading fails any other way', async () => {
+    const { wrapper } = guideWith(['Civil', 'Criminal'], {
+      getAnnotationLabelCounts: vi.fn().mockRejectedValue(Object.assign(new Error('Request failed: 500 Internal Server Error'), { status: 500 })),
+    })
+    await flushPromises()
+    expect(wrapper.find('.vmlb-guide-failed [role="alert"]').text()).toBe("Couldn't load your labelling progress.")
+    wrapper.unmount()
+  })
+
+  it('says how long to wait in the note when a refresh hits too many requests', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValueOnce({ Civil: 1, Criminal: 1 }).mockRejectedValueOnce(tooMany())
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    await save(wrapper, 1)
+    const note = 'Counts may be out of date. Too many requests just now. Try again in 3 minutes.'
+    expect(wrapper.find('.vmlb-guide-stale').text()).toBe(note)
+    expect(wrapper.find('[aria-live="polite"]').text()).toBe(`2 of 10 examples labelled. ${note}`)
+    wrapper.unmount()
+  })
+
+  it('reads the counts again when a label is saved while they first load', async () => {
+    const first = deferred<Record<string, number>>()
+    const getAnnotationLabelCounts = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValue({ Civil: 2, Criminal: 2 })
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(1)
+
+    await save(wrapper, 1)
+    first.resolve({ Civil: 1, Criminal: 1 })
+    await flushPromises()
+
+    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('4 of 10 examples')
+    wrapper.unmount()
+  })
+
+  it('lets no older refresh land once the Dataset names fewer than two labels', async () => {
+    const older = deferred<Record<string, number>>()
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValueOnce({ Civil: 1, Criminal: 1 }).mockReturnValueOnce(older.promise)
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    await wrapper.setProps({ labelsVersion: 1 })
+    await flushPromises()
+    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(2)
+
+    // The newer refresh: one label left, nothing to read.
+    await wrapper.setProps({ labels: ['Civil'] })
+    await flushPromises()
+    older.reject(new Error('Request failed: 500 Internal Server Error'))
+    await flushPromises()
+
+    expect(wrapper.find('.vmlb-guide-stale').exists()).toBe(false)
+    expect(wrapper.find('[aria-live="polite"]').text()).not.toContain('out of date')
+    wrapper.unmount()
+  })
+
+  it('marks out-of-date counts in the folded header on phones', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValueOnce({ Civil: 1, Criminal: 1 }).mockRejectedValueOnce(tooMany())
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    expect(wrapper.find('.vmlb-guide-folded').text()).not.toContain('may be out of date')
+
+    await save(wrapper, 1)
+    expect(wrapper.find('.vmlb-guide-folded').text()).toContain('2 of 10 examples · may be out of date')
+    expect(wrapper.findAll('[aria-live]')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('announces the note with the count line only, not with Try it’s agreement', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValueOnce({ Civil: 10, Criminal: 10 }).mockRejectedValueOnce(tooMany())
+    const { wrapper } = guideWith(['Civil', 'Criminal'], {
+      getAnnotationLabelCounts,
+      getLlmAgreement: vi.fn().mockResolvedValue(llmAgreement({ checked: 20, agreed: 17, rate: 0.85 })),
+    })
+    await flushPromises()
+    await save(wrapper, 1)
+
+    expect(wrapper.find('.vmlb-guide-stale').exists()).toBe(true)
+    const live = wrapper.find('[aria-live="polite"]').text()
+    expect(live).toContain('17 of 20')
+    expect(live).not.toContain('out of date')
+    expect(wrapper.findAll('[aria-live]')).toHaveLength(1)
+    wrapper.unmount()
+  })
+})
