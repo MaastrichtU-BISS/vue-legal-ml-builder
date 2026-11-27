@@ -455,12 +455,16 @@ const outcomes = ref<Record<string, Exclude<TryView, 'holdout' | 'ready' | 'idle
 const askKey = computed(() =>
   props.currentTaskId ? `${props.currentTaskId}:${inUse.value.promptVersion ?? ''}:${inUse.value.model ?? ''}` : null,
 )
+/** The prompt couldn't be read, so its version is unknown: only what this
+ * visit asked for, from the prompt in use, is the prompt's own. */
+const promptFailed = computed(() => !!props.adapter.getLlmPrompt && prompt.value === null && !!promptError.value)
 /** What waits from the prompt version and model in use. Nothing while the
- * prompt version is still loading: an older version's suggestion would match. */
+ * prompt version is still loading, and only what this visit asked for when it
+ * failed to load: an older version's suggestion would match. */
 const waitingInUse = computed(() =>
   ready.value && !promptKnown.value
     ? []
-    : waiting.value.filter(
+    : (promptFailed.value ? newestFirst(asked.value) : waiting.value).filter(
         (s) =>
           (inUse.value.promptVersion === null || s.prompt_version >= inUse.value.promptVersion) &&
           (!inUse.value.model || s.model === inUse.value.model),
@@ -503,16 +507,23 @@ async function askForSuggestion() {
   if (batch) asked.value = [...asked.value, ...batch.suggestions.filter((s) => s.status === 'pending')]
   if (!batch) outcome = 'failed'
   else if (!batch.suggestions.length && batch.invalid) outcome = 'invalid'
+  // Already asked with the prompt in use, but its version is unknown, so the
+  // suggestion waiting from it can't be told from an older one's: not "no
+  // suggestion", which may be false, but the failure and its Try again.
+  else if (!batch.suggestions.length && promptFailed.value) outcome = 'failed'
   // Already asked with this prompt and model: what is waiting is read again.
   else if (!batch.suggestions.length) await llm.refreshProgress(props.datasetId)
   outcomes.value = { ...outcomes.value, [key]: outcome }
 }
 
-function retrySuggestion() {
+async function retrySuggestion() {
   if (!askKey.value) return
   const { [askKey.value]: _failed, ...rest } = outcomes.value
   outcomes.value = rest
-  void askForSuggestion()
+  // With the prompt unread, the server skips an item already asked about: read
+  // it first, so a suggestion waiting from it shows instead of failing again.
+  if (promptFailed.value) await syncDescriptions()
+  await askForSuggestion()
 }
 
 /** Accept, or another label picked: the workspace saves it. */
@@ -523,7 +534,9 @@ function answer(suggestionId: Id, label?: string) {
 }
 
 // The save of new descriptions comes first: its new prompt version is the one to ask with.
-watch([trying, askKey, ready, promptKnown, () => props.currentHoldout, () => !!trySuggestion.value, () => improveSaving.value], () => {
+// Not on a suggestion leaving the item on screen: it was answered (the next item
+// loads) or rejected, and the item was asked about already.
+watch([trying, askKey, ready, promptKnown, () => props.currentHoldout, () => improveSaving.value], () => {
   void askForSuggestion()
 })
 // While Try it shows, the guide says what waits, newest first, so the
