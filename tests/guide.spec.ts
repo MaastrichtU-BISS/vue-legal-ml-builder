@@ -28,7 +28,7 @@ import {
   writePendingDescriptions,
   type GuideProgress,
 } from '../src/annotation/guide'
-import { waitingSuggestion } from '../src/annotation/llmAssist'
+import { isOpenRouterUrl, waitingSuggestion } from '../src/annotation/llmAssist'
 import { llmAgreement, llmSuggestion } from './fixtures/llm'
 
 const passed = llmAgreement({ checked: 30, agreed: 27, rate: 0.9, unlocked: true })
@@ -372,5 +372,17 @@ describe('Do the rest and Ready to train (BAIGLE #196)', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied') })
     expect(() => writeGuideJob('ds-1', 'job-2')).not.toThrow()
     expect(readGuideJob('ds-1')).toBeNull()
+  })
+})
+
+describe('isOpenRouterUrl (BAIGLE #225 council)', () => {
+  it("is OpenRouter's https address only, with no user or password, as the server checks", () => {
+    expect(isOpenRouterUrl('https://openrouter.ai/api/v1')).toBe(true)
+    expect(isOpenRouterUrl('https://OpenRouter.ai./api/v1')).toBe(true)
+    expect(isOpenRouterUrl('http://openrouter.ai/api/v1')).toBe(false)
+    expect(isOpenRouterUrl('https://user:pass@openrouter.ai/api/v1')).toBe(false)
+    expect(isOpenRouterUrl('https://user@openrouter.ai/api/v1')).toBe(false)
+    expect(isOpenRouterUrl('https://api.mistral.ai/v1')).toBe(false)
+    expect(isOpenRouterUrl(null)).toBe(false)
   })
 })

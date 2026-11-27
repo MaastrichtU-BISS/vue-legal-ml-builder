@@ -451,6 +451,31 @@ describe('LLM assistance: the monthly limit', () => {
     wrapper.unmount()
   })
 
+  it('keeps Suggest, Estimate and saving the prompt open for a free model on the shared key with no tokens left (BAIGLE #225 council)', async () => {
+    const free = llmStatus({ remaining_tokens: 0, free_model: true })
+    const { wrapper } = await mounted({ getLlmStatus: vi.fn().mockResolvedValue(free) })
+
+    expect(panel(wrapper).text()).not.toContain("You've used this month's limit on the shared key.")
+    expect(panel(wrapper).text()).not.toContain('tokens left this month')
+    expect(button(wrapper, 'Suggest labels for this batch')?.attributes('disabled')).toBeUndefined()
+    expect(button(wrapper, 'Estimate the cost')?.attributes('disabled')).toBeUndefined()
+    expect(button(wrapper, 'Save as a new version')?.attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('details.vmlb-llm-add-key').attributes('open')).toBeUndefined()
+
+    wrapper.unmount()
+  })
+
+  it('locks on a monthly-limit refusal even when the status read earlier said the model is free: the status was stale (BAIGLE #225 council)', async () => {
+    const free = llmStatus({ remaining_tokens: 1000, free_model: true })
+    const createLlmSuggestions = vi.fn().mockRejectedValue(refusal("You've reached the monthly limit.", 'budget_exhausted'))
+    const { wrapper } = await mounted({ getLlmStatus: vi.fn().mockResolvedValue(free), createLlmSuggestions })
+
+    await click(wrapper, 'Suggest labels for this batch')
+    expect(button(wrapper, 'Suggest labels for this batch')?.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('details.vmlb-llm-add-key').attributes('open')).toBeDefined()
+    wrapper.unmount()
+  })
+
   it('drops the limit warning once the meter is down, saying only that', async () => {
     const meterDown = llmStatus({
       remaining_tokens: null,
@@ -691,6 +716,103 @@ describe('LLM assistance: labelling many items at once', () => {
 
     expect(section(wrapper).text()).toContain('The monthly limit was reached. Add your own API key to continue.')
     expect(wrapper.find('details.vmlb-llm-add-key').attributes('open')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it("warns when a free model's daily allowance is smaller than the batch, and still lets it start (BAIGLE #225)", async () => {
+    const over = { ...estimate, tasks: 80, free_model: true, provider_daily_limit: 50, over_provider_limit: true }
+    const { wrapper } = await mounted({ estimateLlmAnnotation: vi.fn().mockResolvedValue(over) })
+
+    await click(wrapper, 'Estimate the cost')
+
+    expect(section(wrapper).text()).toContain(
+      "This free model allows about 50 requests a day on OpenRouter, and this batch has 80 items. The job will stop when the allowance runs out; what's done is kept.",
+    )
+    expect(button(wrapper, 'Start labelling 80 items')?.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it("says how many of the free model's requests are left today, and leaves out the tokens left for a free model (BAIGLE #225 council)", async () => {
+    const over = { ...estimate, tasks: 80, free_model: true, provider_daily_limit: 50, provider_daily_remaining: 12, over_provider_limit: true }
+    const { wrapper } = await mounted({ estimateLlmAnnotation: vi.fn().mockResolvedValue(over) })
+
+    await click(wrapper, 'Estimate the cost')
+
+    expect(section(wrapper).text()).toContain(
+      "This free model has about 12 of its 50 requests a day left on OpenRouter, and this batch has 80 items. The job will stop when they run out; what's done is kept.",
+    )
+    expect(section(wrapper).text()).not.toContain('tokens left this month')
+    expect(button(wrapper, 'Start labelling 80 items')?.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it("says the platform's free model shares its daily allowance between everyone (BAIGLE #225 council)", async () => {
+    const over = { ...estimate, tasks: 80, free_model: true, provider_daily_limit: 50, provider_daily_remaining: 12, provider_allowance_shared: true, over_provider_limit: true }
+    const { wrapper } = await mounted({ estimateLlmAnnotation: vi.fn().mockResolvedValue(over) })
+
+    await click(wrapper, 'Estimate the cost')
+
+    expect(section(wrapper).text()).toContain(
+      "This platform's free model shares about 50 requests a day on OpenRouter between everyone, about 12 are left today, and this batch has 80 items. The job will stop when they run out; what's done is kept.",
+    )
+    expect(button(wrapper, 'Start labelling 80 items')?.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it("says a job is waiting for the provider, then that the provider stopped it with what was kept (BAIGLE #225)", async () => {
+    vi.useFakeTimers()
+    const error = 'This free model allows 50 requests a day on OpenRouter. That is used up for today.'
+    const getLlmJob = vi.fn()
+      .mockResolvedValueOnce({ status: 'running', total: 3, done: 1, created: 1, waiting_seconds: 20 })
+      .mockResolvedValue({ status: 'provider_limited', total: 3, done: 2, created: 2, invalid: 0, error, daily: true, retry_after: 3600 })
+    const { wrapper } = await mounted({
+      estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate),
+      startLlmAnnotation: vi.fn().mockResolvedValue({ job_id: 'job-1', estimate }),
+      getLlmJob,
+    })
+
+    await click(wrapper, 'Estimate the cost')
+    await click(wrapper, 'Start labelling 3 items')
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(section(wrapper).text()).toContain("Waiting up to 20s for the provider's per-minute limit…")
+
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(section(wrapper).text()).toContain(error)
+    expect(section(wrapper).text()).toContain('Stopped after 2 of 3 items. The 2 suggestions made are kept.')
+    // Not the shared key's monthly limit: the own-key form stays closed.
+    expect(wrapper.find('details.vmlb-llm-add-key').attributes('open')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('says nothing is kept when the provider stopped the job before it made anything (BAIGLE #225 council)', async () => {
+    vi.useFakeTimers()
+    const error = 'This free model allows 50 requests a day on OpenRouter. That is used up for today.'
+    const { wrapper } = await mounted({
+      estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate),
+      startLlmAnnotation: vi.fn().mockResolvedValue({ job_id: 'job-1', estimate }),
+      getLlmJob: vi.fn().mockResolvedValue({ status: 'provider_limited', total: 3, done: 0, created: 0, invalid: 0, error, daily: true, retry_after: 3600 }),
+    })
+
+    await click(wrapper, 'Estimate the cost')
+    await click(wrapper, 'Start labelling 3 items')
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(section(wrapper).text()).toContain(error)
+    expect(section(wrapper).text()).toContain('Stopped after 0 of 3 items.')
+    expect(section(wrapper).text()).not.toContain('kept')
+    wrapper.unmount()
+  })
+
+  it("shows the server's words when a Start is refused because a job is already running (BAIGLE #225 council)", async () => {
+    const words = 'A labelling job is already running for you. Wait for it to finish, then start another.'
+    const refused = Object.assign(new Error(words), { status: 409, code: 'job_running' })
+    const { wrapper } = await mounted({
+      estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate),
+      startLlmAnnotation: vi.fn().mockRejectedValue(refused),
+    })
+
+    await click(wrapper, 'Estimate the cost')
+    await click(wrapper, 'Start labelling 3 items')
+    expect(wrapper.find('.vmlb-alert-error').text()).toBe(words)
     wrapper.unmount()
   })
 

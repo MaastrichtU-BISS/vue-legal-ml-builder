@@ -45,7 +45,8 @@ const correctTo = ref('')
 const llmSeedOffered = computed(() => !!settings.value?.seed_sources.llm && !!props.adapter.estimateActiveLearningSeed)
 const seed = computed(() => activeLoop.value?.seed ?? null)
 const seedRunning = computed(() => ['queued', 'running'].includes(seed.value?.status ?? ''))
-const seedFailed = computed(() => ['failed', 'budget_exhausted'].includes(seed.value?.status ?? ''))
+/** The seed stopped: it failed, or ran out of budget or of the provider's allowance. */
+const seedFailed = computed(() => ['failed', 'budget_exhausted', 'provider_limited'].includes(seed.value?.status ?? ''))
 /** The Project has not allowed its text to go to this destination. */
 const destinationToAllow = computed(() =>
   refusal.value?.code === 'acknowledgement_required' ? (refusal.value.destination ?? null) : null,

@@ -1,4 +1,4 @@
-import type { AnnotationTask, Id, LlmSuggestion } from '../types'
+import type { AnnotationTask, Id, LlmEstimate, LlmJob, LlmSuggestion } from '../types'
 import { count } from './annotationState'
 
 /** legal-ml-core's default for `LLM_MAX_SYNC_TASKS`, for servers whose status does not report `max_sync_tasks`. */
@@ -63,4 +63,61 @@ export function tokens(value: number): string {
 
 export function percent(share: number): string {
   return `${Math.round(share * 100)}%`
+}
+
+// ---------------------------------------------------------------------------
+// Free models (BAIGLE #225): the provider, not this platform, limits them by
+// requests a minute and a day.
+// ---------------------------------------------------------------------------
+
+/** Said once a free model is chosen. */
+export const FREE_MODEL_HINT =
+  "Free models on OpenRouter allow about 20 requests a minute and 50 a day (1,000 a day once you've bought $10 of credit)."
+
+/** The base URL is OpenRouter's (by its host, over https, with no user or
+ * password in it, as the server checks), whatever provider was picked. */
+export function isOpenRouterUrl(baseUrl: string | null | undefined): boolean {
+  try {
+    const url = new URL((baseUrl ?? '').trim())
+    return url.protocol === 'https:' && !url.username && !url.password
+      && url.hostname.toLowerCase().replace(/\.$/, '') === 'openrouter.ai'
+  } catch {
+    return false
+  }
+}
+
+/** Free at the provider: flagged by the server, or a `:free` id at OpenRouter.
+ * Another provider's `:free` id is just a name. */
+export function isFreeModel(model: { id: string; free?: boolean }, baseUrl: string | null | undefined): boolean {
+  return model.free === true || (isOpenRouterUrl(baseUrl) && model.id.trim().endsWith(':free'))
+}
+
+/** The warning before a batch bigger than the free model's daily allowance.
+ * Empty when it fits. It never stops the job from starting. */
+export function providerLimitWarning(
+  estimate: Pick<LlmEstimate, 'tasks' | 'over_provider_limit' | 'provider_daily_limit' | 'provider_daily_remaining' | 'provider_allowance_shared'>,
+): string {
+  if (!estimate.over_provider_limit) return ''
+  const limit = typeof estimate.provider_daily_limit === 'number' ? estimate.provider_daily_limit : null
+  const left = typeof estimate.provider_daily_remaining === 'number' ? estimate.provider_daily_remaining : null
+  const batch = `this batch has ${count(estimate.tasks, 'item')}`
+  const end = "The job will stop when they run out; what's done is kept."
+  if (estimate.provider_allowance_shared) {
+    // The platform's shared key: everyone using it draws on the one allowance.
+    const shares = limit === null ? 'only so many requests a day' : `about ${tokens(limit)} requests a day`
+    const today = left === null ? '' : `, about ${tokens(left)} are left today,`
+    return `This platform's free model shares ${shares} on OpenRouter between everyone${today} and ${batch}. ${end}`
+  }
+  if (left !== null) {
+    const of = limit === null ? 'requests' : `of its ${tokens(limit)} requests a day`
+    return `This free model has about ${tokens(left)} ${of} left on OpenRouter, and ${batch}. ${end}`
+  }
+  const allows = limit === null ? 'only so many requests a day' : `about ${tokens(limit)} requests a day`
+  return `This free model allows ${allows} on OpenRouter, and ${batch}. The job will stop when the allowance runs out; what's done is kept.`
+}
+
+/** A running job waiting out the provider's per-minute limit; empty otherwise. */
+export function providerWaitLine(job: Pick<LlmJob, 'status' | 'waiting_seconds'> | null): string {
+  const wait = job?.status === 'running' ? job.waiting_seconds : null
+  return typeof wait === 'number' && wait > 0 ? `Waiting up to ${Math.ceil(wait)}s for the provider's per-minute limit…` : ''
 }

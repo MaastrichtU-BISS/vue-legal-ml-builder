@@ -70,6 +70,17 @@ function tooManyRequestsMessage(retryAfter?: number): string {
   return `Too many requests just now. Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`
 }
 
+/** The AI provider's own rate limit, when the server gave no words for it:
+ * never worded as this platform's "Too many requests". */
+function providerLimitMessage(retryAfter: number | undefined, daily: boolean): string {
+  if (daily) return "The AI provider's daily allowance for this model is used up. Try again tomorrow."
+  if (retryAfter === undefined) return 'The AI provider is limiting requests. Wait a minute and try again.'
+  // Worded as tooManyRequestsMessage: minutes up to an hour and a half, then hours.
+  if (retryAfter > 90 * 60) return `The AI provider is limiting requests. Try again in ${Math.ceil(retryAfter / 3600)} hours.`
+  const minutes = Math.max(1, Math.ceil(retryAfter / 60))
+  return `The AI provider is limiting requests. Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`
+}
+
 async function parseOrThrow(res: Response) {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throwRefusal(res, data && typeof data === 'object' ? data : {})
@@ -80,7 +91,12 @@ async function parseOrThrow(res: Response) {
  * reads as no body, so the status and the wait still reach the caller. */
 function throwRefusal(res: Response, data: Record<string, any>): never {
   const retryAfter = res.status === 429 ? retryAfterSeconds(res, data) : undefined
-  const fallback = res.status === 429 ? tooManyRequestsMessage(retryAfter) : `Request failed: ${res.status} ${res.statusText}`
+  // The AI provider's limit (BAIGLE #225), not this platform's.
+  const provider = data.code === 'provider_rate_limited'
+  const daily = provider && data.daily === true
+  const fallback = provider
+    ? providerLimitMessage(retryAfter, daily)
+    : res.status === 429 ? tooManyRequestsMessage(retryAfter) : `Request failed: ${res.status} ${res.statusText}`
   const error: RefusalError & LlmRefusalError & SummarizationError = new Error(data.error || fallback)
   error.status = res.status
   if (retryAfter !== undefined) error.retryAfter = retryAfter
@@ -89,6 +105,7 @@ function throwRefusal(res: Response, data: Record<string, any>): never {
   // A 429 from a proxy has no code: name it, so callers keyed on codes keep the wait.
   else if (res.status === 429) error.code = 'rate_limited'
   if (typeof data.destination === 'string') error.destination = data.destination
+  if (provider) error.daily = daily
   throw error
 }
 

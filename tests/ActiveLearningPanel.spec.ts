@@ -416,6 +416,14 @@ describe('an LLM-suggested first batch', () => {
     expect(vi.mocked(adapter.getNextAnnotationTask!).mock.calls.length).toBeGreaterThan(servedBefore)
   })
 
+  it("says the random order stays when the provider's limit stopped the seed (BAIGLE #225)", async () => {
+    const { wrapper } = await withLlmSeed(loopState({ seed_source: 'llm', seed: { status: 'provider_limited', done: 30, total: 60, error: 'The free model is used up for today.' } }))
+
+    expect(wrapper.text()).toContain('The free model is used up for today.')
+    expect(wrapper.text()).toContain('The first batch stays in random order.')
+    expect(wrapper.text()).not.toContain('The LLM is choosing the first batch')
+  })
+
   it('says the random order stays when the seed fails', async () => {
     const { wrapper } = await withLlmSeed(loopState({ seed_source: 'llm', seed: { status: 'failed', error: 'The LLM did not answer.' } }))
 

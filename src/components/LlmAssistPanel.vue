@@ -2,7 +2,7 @@
 import { computed, inject, onMounted, ref, watch } from 'vue'
 import { count } from '../annotation/annotationState'
 import { definitionsToFill, readPendingDescriptions, writePendingDescriptions } from '../annotation/guide'
-import { SUGGEST_BATCH_SIZE, batchSummary, percent, queueOrder, tokens } from '../annotation/llmAssist'
+import { SUGGEST_BATCH_SIZE, batchSummary, percent, providerLimitWarning, providerWaitLine, queueOrder, tokens } from '../annotation/llmAssist'
 import { useLlmAssist } from '../composables/useLlmAssist'
 import type { Id, LlmAgreement, LlmStatus, LlmSuggestion, MLAdapter } from '../types'
 import Icon from './shared/Icon.vue'
@@ -43,9 +43,21 @@ const scope = ref<'next' | 'all'>(props.adapter.listAnnotationTasks ? 'next' : '
 const jobSize = ref(50)
 watch([scope, jobSize], clearEstimate)
 
+/** A batch bigger than the free model's daily allowance: a warning, never a block. */
+const overProvider = computed(() => (estimate.value ? providerLimitWarning(estimate.value) : ''))
+const providerWait = computed(() => providerWaitLine(job.value))
+
 const jobRunning = computed(() => job.value?.status === 'queued' || job.value?.status === 'running')
 const jobSummary = computed(() => {
   const value = job.value
+  // The provider's limit stopped it: the server's reason shows below, with what was kept here.
+  if (value?.status === 'provider_limited') {
+    const created = value.created ?? value.done
+    const stopped = `Stopped after ${value.done} of ${count(value.total, 'item')}.`
+    // Nothing made: nothing to say is kept.
+    if (created === 0) return stopped
+    return `${stopped} The ${count(created, 'suggestion')} made ${created === 1 ? 'is' : 'are'} kept.`
+  }
   if (value?.status !== 'completed') return ''
   const created = value.created ?? 0
   const invalid = value.invalid ?? 0
@@ -152,7 +164,7 @@ watch([status, agreement], ([nextStatus, nextAgreement]) => emit('state', { stat
       </p>
       <p v-else-if="status.mode === 'shared'" class="vmlb-llm-status">
         Suggestions use the shared key. Text is sent to <strong>{{ status.destination }}</strong>.
-        <span v-if="status.remaining_tokens !== null" class="vmlb-muted vmlb-num">{{ tokens(status.remaining_tokens) }} tokens left this month.</span>
+        <span v-if="status.remaining_tokens !== null && !status.free_model" class="vmlb-muted vmlb-num">{{ tokens(status.remaining_tokens) }} tokens left this month.</span>
       </p>
       <p v-else-if="status.mode === 'byok'" class="vmlb-llm-status">
         Suggestions use your own key. Text is sent to <strong>{{ status.destination }}</strong>.
@@ -229,11 +241,12 @@ watch([status, agreement], ([nextStatus, nextAgreement]) => emit('state', { stat
           <p>
             {{ count(estimate.tasks, 'item') }}, about {{ tokens(estimate.estimated_tokens) }} tokens. Text is sent to
             {{ estimate.destination }}.
-            <template v-if="estimate.remaining_tokens !== null">{{ tokens(estimate.remaining_tokens) }} tokens left this month.</template>
+            <template v-if="estimate.remaining_tokens !== null && !estimate.free_model">{{ tokens(estimate.remaining_tokens) }} tokens left this month.</template>
           </p>
           <p v-if="!estimate.within_budget" class="vmlb-llm-warning" role="status">
             <Icon name="alert" /> This is more than your remaining monthly limit. Label fewer items, or add your own API key.
           </p>
+          <p v-else-if="overProvider" class="vmlb-llm-warning" role="status"><Icon name="alert" /> {{ overProvider }}</p>
           <button class="vmlb-btn-primary" :disabled="isBusy || !estimate.within_budget || !estimate.tasks" @click="startJob(datasetId)">
             Start labelling {{ count(estimate.tasks, 'item') }}
           </button>
@@ -254,6 +267,7 @@ watch([status, agreement], ([nextStatus, nextAgreement]) => emit('state', { stat
           >
             <div class="vmlb-llm-bar-fill" :style="{ transform: `scaleX(${job.total ? job.done / job.total : 0})` }" />
           </div>
+          <p v-if="providerWait" class="vmlb-muted vmlb-num">{{ providerWait }}</p>
           <p v-if="jobSummary" role="status">{{ jobSummary }}</p>
           <div v-if="job.error" class="vmlb-alert-error"><Icon name="alert" /> {{ job.error }}</div>
         </div>

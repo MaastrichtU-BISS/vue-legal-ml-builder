@@ -4,6 +4,7 @@ import type {
   LlmAgreement,
   LlmEstimate,
   LlmJob,
+  LlmModelOption,
   LlmPrompt,
   LlmRefusalError,
   LlmStatus,
@@ -12,6 +13,7 @@ import type {
   MLAdapter,
 } from '../types'
 import { demoSuggestion } from './demoClauses'
+import { isOpenRouterUrl } from '../annotation/llmAssist'
 
 // LLM assistance for the demo, in memory: no network calls. It keeps
 // legal-ml-core's rules (routes/llm.py) with its default settings.
@@ -22,6 +24,16 @@ export const MONTHLY_TOKEN_CAP = 200_000
 export const MAX_SYNC_TASKS = 10
 export const AGREEMENT_MIN_SAMPLE = 30
 export const AGREEMENT_THRESHOLD = 0.8
+/** Requests a day OpenRouter allows its free models, shared by them all. */
+export const FREE_DAILY_LIMIT = 50
+
+/** What the demo's provider lists for any key: OpenRouter-like, with free models. */
+export const DEMO_LLM_MODELS: LlmModelOption[] = [
+  { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5' },
+  { id: 'mistralai/mistral-small', name: 'Mistral Small' },
+  { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B Instruct', free: true },
+  { id: 'mistralai/mistral-small-3.2:free', name: 'Mistral Small 3.2', free: true },
+]
 
 const DEFAULT_TEMPLATE = 'Label the legal text below with exactly one label.\n\nLabels:\n{labels}\n\nExamples:\n{examples}\n\nText to label:\n{text}'
 const CONFIRMED_SOURCES = ['human', 'llm_confirmed']
@@ -32,12 +44,23 @@ const MAX_OUTPUT_TOKENS = 300
 type LlmMethods = Required<Pick<MLAdapter,
   | 'getLlmStatus' | 'saveLlmKey' | 'deleteLlmKey' | 'acknowledgeLlmDestination' | 'getLlmPrompt' | 'updateLlmPrompt'
   | 'createLlmSuggestions' | 'listLlmSuggestions' | 'confirmLlmSuggestion' | 'rejectLlmSuggestion' | 'getLlmAgreement'
-  | 'bulkAcceptLlmSuggestions' | 'estimateLlmAnnotation' | 'startLlmAnnotation' | 'getLlmJob'>>
+  | 'bulkAcceptLlmSuggestions' | 'estimateLlmAnnotation' | 'startLlmAnnotation' | 'getLlmJob' | 'listLlmModels'>>
 
 /** What the LLM methods need from the demo's annotation data. */
 export interface DemoAnnotationStore {
   tasks: AnnotationTask[]
   labelsOf(datasetId: Id): string[]
+}
+
+/** The provider's daily cap on free models, as legal-ml-core passes it on (a 429). */
+function providerLimited(): LlmRefusalError & { status: number; retryAfter: number } {
+  const midnight = new Date()
+  midnight.setHours(24, 0, 0, 0)
+  const error = Object.assign(refusal(
+    `This free model allows ${FREE_DAILY_LIMIT} requests a day on OpenRouter. That is used up for today.`,
+    'provider_rate_limited',
+  ), { status: 429, retryAfter: Math.ceil((midnight.getTime() - Date.now()) / 1000), daily: true })
+  return error
 }
 
 function refusal(message: string, code?: string, destination?: string): LlmRefusalError {
@@ -55,6 +78,8 @@ export function createMockLlm(
 ): LlmMethods {
   let key: { base_url: string; model: string } | null = null
   let usedTokens = 0
+  /** Requests sent to free models today, against the provider's daily cap. */
+  let freeRequests = 0
   const acknowledged = new Map<Id, Set<string>>()
   const prompts = new Map<Id, LlmPrompt[]>()
   const suggestions: LlmSuggestion[] = []
@@ -66,6 +91,11 @@ export function createMockLlm(
     return key
       ? { mode: 'byok' as const, destination: new URL(key.base_url).host, model: key.model }
       : { mode: 'shared' as const, destination: DEMO_LLM_DESTINATION, model: DEMO_LLM_MODEL }
+  }
+
+  /** The model in use is free at the provider: a `:free` id at OpenRouter. */
+  function freeModel(): boolean {
+    return !!key && isOpenRouterUrl(key.base_url) && key.model.endsWith(':free')
   }
 
   function remaining(): number | null {
@@ -114,6 +144,10 @@ export function createMockLlm(
       const left = remaining()
       if (left !== null && left <= 0) {
         throw refusal("You've reached the monthly limit. Add your own API key to continue.", 'budget_exhausted')
+      }
+      if (freeModel()) {
+        if (freeRequests >= FREE_DAILY_LIMIT) throw providerLimited()
+        freeRequests++
       }
       usedTokens += PROMPT_TOKENS + Math.ceil(task.text.length / 4) + ANSWER_TOKENS
       const { label, rationale } = demoSuggestion(task.text, labels)
@@ -164,12 +198,19 @@ export function createMockLlm(
     const tasks = pendingTasks(datasetId, taskIds)
     const left = remaining()
     const estimated = tasks.reduce((sum, t) => sum + PROMPT_TOKENS + Math.ceil(t.text.length / 4) + MAX_OUTPUT_TOKENS, 0)
+    const free = freeModel()
     const body: LlmEstimate = {
       tasks: tasks.length,
       estimated_tokens: estimated,
       remaining_tokens: left,
       within_budget: left === null || estimated <= left,
       destination: credential().destination,
+      free_model: free,
+      provider_daily_limit: free ? FREE_DAILY_LIMIT : null,
+      provider_daily_remaining: free ? Math.max(FREE_DAILY_LIMIT - freeRequests, 0) : null,
+      // The demo's free models need the student's own key, so the allowance is theirs.
+      provider_allowance_shared: false,
+      over_provider_limit: free && tasks.length > FREE_DAILY_LIMIT - freeRequests,
     }
     return { tasks, estimate: body }
   }
@@ -183,18 +224,25 @@ export function createMockLlm(
         job.status = 'running'
         return
       }
-      const chunk = taskIds.slice(next, next + 2).map(taskOf).filter((t): t is AnnotationTask => !!t)
-      next += 2
-      try {
-        const done = suggestTasks(datasetId, chunk.filter((t) => t.status === 'pending'), model)
-        job.created = (job.created ?? 0) + done.created.length
-      } catch (err) {
-        job.status = 'budget_exhausted'
-        job.error = (err as Error).message
-        clearInterval(interval)
-        return
+      // An item at a time, so a stop keeps the count of what was done.
+      for (const id of taskIds.slice(next, next + 2)) {
+        const task = taskOf(id)
+        try {
+          if (task?.status === 'pending') job.created = (job.created ?? 0) + suggestTasks(datasetId, [task], model).created.length
+        } catch (err) {
+          const refused = err as ReturnType<typeof providerLimited>
+          job.error = refused.message
+          if (refused.code === 'provider_rate_limited') {
+            job.status = 'provider_limited'
+            job.daily = true
+            job.retry_after = refused.retryAfter
+          } else job.status = 'budget_exhausted'
+          clearInterval(interval)
+          return
+        }
+        next++
+        job.done = Math.min(next, job.total)
       }
-      job.done = Math.min(next, job.total)
       if (job.done >= job.total) {
         job.status = 'completed'
         clearInterval(interval)
@@ -213,6 +261,7 @@ export function createMockLlm(
         key: key ? { ...key } : null,
         remaining_tokens: remaining(),
         max_sync_tasks: MAX_SYNC_TASKS,
+        free_model: freeModel(),
       }
       if (datasetId) status.acknowledged = !!acknowledged.get(datasetId)?.has(cred.destination)
       return delay(status)
@@ -229,6 +278,12 @@ export function createMockLlm(
       // The key itself is dropped: the demo never calls it.
       key = { base_url: input.base_url, model: input.model }
       return delay({ ...key })
+    },
+    async listLlmModels(request) {
+      // Free only at OpenRouter's address, as the server flags it.
+      const baseUrl = 'use_saved_key' in request ? key?.base_url : request.base_url
+      const atOpenRouter = isOpenRouterUrl(baseUrl)
+      return delay({ models: DEMO_LLM_MODELS.map(({ free, ...m }) => (atOpenRouter && free ? { ...m, free } : { ...m })) })
     },
     async deleteLlmKey() {
       key = null

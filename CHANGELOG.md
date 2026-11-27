@@ -11,6 +11,68 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-27
+
+### Added
+
+- **Free models, and the AI provider's own rate limits** (BAIGLE #225). New,
+  optional fields from legal-ml-core, which an older server leaves out:
+  `LlmModelOption.free`, `LlmStatus.free_model`, the estimate's `free_model`,
+  `provider_daily_limit`, `provider_daily_remaining`, `provider_allowance_shared`
+  and `over_provider_limit`, the job status
+  `provider_limited` with its `retry_after` and `daily`, and a running job's
+  `waiting_seconds`. `LlmRefusalError` gains `daily`, and `LlmErrorCode`
+  gains `job_running` (a second Start while a job runs, shown in the server's
+  words).
+- The model picker tags free models "(free)" (once, when the name already says
+  so), and once one is chosen, listed or typed, says: "Free models on
+  OpenRouter allow about 20 requests a minute and 50 a day (1,000 a day once
+  you've bought $10 of credit)." The server's `free` flag counts for any
+  provider; a `:free` id alone only at OpenRouter's address, so another
+  provider's `x:free` is just a name.
+- Do the rest, and the panel's "Label many items at once", warn when a batch
+  is bigger than what the free model has left today: "This free model has about
+  {left} of its {limit} requests a day left on OpenRouter, and this batch has
+  {n} items. The job will stop when they run out; what's done is kept." On the
+  platform's shared key it says the allowance is shared between everyone. It is
+  only a warning: Start stays enabled, and only `within_budget` holds it back,
+  as before.
+- A running job waiting out the provider's per-minute limit says "Waiting up
+  to {n}s for the provider's per-minute limit…".
+- After the provider's limit stopped a job, the guide offers "Review the {n} AI
+  labels" beside Carry on, to accept or check what it kept.
+- The demo lists two free models, counts their 50 requests a day (reporting
+  what is left), treats `:free` as free only at OpenRouter, and stops a bigger
+  job with `provider_limited`, keeping what it made.
+
+### Changed
+
+- **A provider's 429 keeps its code** (`provider_rate_limited`), with
+  `retryAfter` and `daily`. With no words from the server, the self-hosted
+  adapter names the provider, never this platform's "Too many requests just
+  now", and gives a wait over an hour and a half in hours, as that one does. Try it shows the server's words for it instead of "The AI didn't
+  answer".
+- **A job the provider's limit stopped** (`provider_limited`) ends like a
+  failed one that kept its work: the guide says the server's reason and how
+  many were kept, and offers Carry on; the panel says how many suggestions were
+  made. A job stopped before it made anything says nothing is kept. It is not the shared key's monthly limit, so it never sends the student
+  to add a key. An LLM-chosen first batch it stopped stays in random order,
+  with its reason.
+- **A free model on the shared key is never locked out** by the monthly token
+  limit: it is metered but not capped, so a status with `free_model` clears
+  the out-of-tokens state and the guide and panel leave out "tokens left this
+  month". The server never sends `budget_exhausted` for a free model, so a
+  refusal or a job stopped with it still locks: the page's status was stale
+  (the shared model was switched to a paid one).
+- Do the rest leaves out "your AI provider charges you for these tokens" for a
+  free model on the student's own key.
+- Try it drops the provider's words once the item is asked again (access back)
+  or fails for another reason, so a later failure isn't blamed on the
+  provider's limit.
+- A `:free` id counts as free only at OpenRouter's https address with no user
+  or password in it, as the server checks; the demo flags free models only
+  when listing at that address.
+
 ## [0.17.1] - 2026-11-27
 
 ### Added
@@ -868,7 +930,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.1...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.15.0...v0.16.0

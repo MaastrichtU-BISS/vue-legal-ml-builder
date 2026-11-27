@@ -169,6 +169,53 @@ describe('the demo LLM', () => {
     expect(await settle(adapter.listLlmSuggestions!(ds, 'pending'))).toHaveLength(6)
     expect(await pendingIds(40)).toHaveLength(40)
   })
+
+  it("lists a free model, and stops a job on a free model's daily allowance, keeping what was made (BAIGLE #225)", async () => {
+    const { models } = await settle(adapter.listLlmModels!({ base_url: 'https://openrouter.ai/api/v1', api_key: 'sk-demo' }))
+    const free = models.filter((m) => m.free)
+    expect(free.length).toBeGreaterThanOrEqual(2)
+    expect(free.every((m) => m.id.endsWith(':free'))).toBe(true)
+    const useModel = async (model: string) => {
+      await settle(adapter.saveLlmKey!({ base_url: 'https://openrouter.ai/api/v1', model, api_key: 'sk-demo' }))
+      await settle(adapter.acknowledgeLlmDestination!(ds, 'openrouter.ai'))
+    }
+
+    await useModel(free[0].id)
+    expect(await settle(adapter.getLlmStatus!(ds))).toMatchObject({ mode: 'byok', free_model: true })
+    // 30 of the day's 50 requests, shared by every free model, used on one model.
+    const all = await pendingIds(40)
+    for (const batch of [all.slice(0, 10), all.slice(10, 20), all.slice(20, 30)]) await settle(adapter.createLlmSuggestions!(ds, batch))
+
+    // Another free model needs an answer on every item: 40, with 20 requests left today.
+    await useModel(free[1].id)
+    const estimate = await settle(adapter.estimateLlmAnnotation!(ds))
+    expect(estimate).toMatchObject({
+      tasks: 40, free_model: true, provider_daily_limit: 50, provider_daily_remaining: 20, provider_allowance_shared: false,
+      over_provider_limit: true, within_budget: true,
+    })
+
+    const { job_id: jobId } = await settle(adapter.startLlmAnnotation!(ds))
+    let job = await settle(adapter.getLlmJob!(jobId))
+    for (let i = 0; i < 40 && (job.status === 'queued' || job.status === 'running'); i++) job = await settle(adapter.getLlmJob!(jobId))
+    expect(job).toMatchObject({ status: 'provider_limited', total: 40, done: 20, created: 20, daily: true })
+    expect(job.error).toContain('50 requests a day')
+  })
+
+  it("flags free models only when listing at OpenRouter's https address (BAIGLE #225 council)", async () => {
+    const at = async (base_url: string) => (await settle(adapter.listLlmModels!({ base_url, api_key: 'sk-demo' }))).models.filter((m) => m.free)
+    expect((await at('https://openrouter.ai/api/v1')).length).toBeGreaterThanOrEqual(2)
+    expect(await at('http://openrouter.ai/api/v1')).toEqual([])
+    expect(await at('https://api.mistral.ai/v1')).toEqual([])
+    await settle(adapter.saveLlmKey!({ base_url: 'https://api.mistral.ai/v1', model: 'mistral-small', api_key: 'sk-demo' }))
+    expect((await settle(adapter.listLlmModels!({ use_saved_key: true }))).models.filter((m) => m.free)).toEqual([])
+  })
+
+  it("treats a :free id as free only at OpenRouter's address (BAIGLE #225 council)", async () => {
+    await settle(adapter.saveLlmKey!({ base_url: 'https://api.mistral.ai/v1', model: 'mistral-small:free', api_key: 'sk-demo' }))
+    expect(await settle(adapter.getLlmStatus!(ds))).toMatchObject({ mode: 'byok', free_model: false })
+    await settle(adapter.acknowledgeLlmDestination!(ds, 'api.mistral.ai'))
+    expect(await settle(adapter.estimateLlmAnnotation!(ds))).toMatchObject({ free_model: false, provider_daily_limit: null, over_provider_limit: false })
+  })
 })
 
 describe('the demo adapter summarization', () => {

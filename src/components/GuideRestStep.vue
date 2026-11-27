@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { count } from '../annotation/annotationState'
 import { CHECK_SAMPLE, type RestScope } from '../annotation/guide'
-import { tokens } from '../annotation/llmAssist'
+import { providerLimitWarning, providerWaitLine, tokens } from '../annotation/llmAssist'
 import type { LlmEstimate, LlmJob, LlmStatus } from '../types'
 import Icon from './shared/Icon.vue'
 
@@ -42,6 +42,8 @@ const emit = defineEmits<{
   (e: 'change'): void
   (e: 'start'): void
   (e: 'carry-on', scope: RestScope): void
+  /** After a stop: put the job aside and go to the AI labels it kept, to accept or check. */
+  (e: 'review'): void
   (e: 'accept'): void
   (e: 'check'): void
   /** Go on to Ready to train for this visit, leaving the rest for later. */
@@ -57,6 +59,8 @@ watch([scope, nextCount], () => emit('change'))
 
 /** The AI's labels are waiting, but the student chose to let it label more first. */
 const wantMore = ref(false)
+/** After a stop, the student chose the labels it kept over carrying on. */
+const reviewing = ref(false)
 /** Nothing is left for the AI to label, as the lists or the last estimate say. */
 const nothingMore = computed(() => props.labellable === 0 || props.estimate?.tasks === 0)
 /** Items the AI can still label, beside those waiting to be accepted. None once
@@ -73,12 +77,13 @@ const jobMade = computed(() => props.job?.status === 'completed' && (props.job.c
 const labelsReady = computed(
   () =>
     props.aiLabels > 0 &&
-    (nothingMore.value || jobMade.value || props.aiLabels - (props.tryWaiting ?? 0) > 0),
+    (reviewing.value || nothingMore.value || jobMade.value || props.aiLabels - (props.tryWaiting ?? 0) > 0),
 )
 const view = computed(() => {
   const status = props.job?.status
   if (status === 'queued' || status === 'running') return 'running'
-  if (status === 'failed') return 'failed'
+  // The provider's limit stopped it: like a failure, what was made is kept.
+  if (status === 'failed' || status === 'provider_limited') return 'failed'
   if (labelsReady.value && (!wantMore.value || nothingMore.value)) return 'done'
   // What is left already has the AI's answer: only the student can label it.
   // An estimate covering no items says the same, if the lists changed meanwhile.
@@ -92,8 +97,15 @@ function carryOn() {
   wantMore.value = true
   emit('carry-on', chosen.value)
 }
+/** Go to the labels a stopped job kept: the Accept and Check actions. */
+function reviewKept() {
+  wantMore.value = false
+  reviewing.value = true
+  emit('review')
+}
 watch(view, (value) => {
   if (value === 'running') wantMore.value = false
+  if (value === 'running' || value === 'choose') reviewing.value = false
 })
 
 // The button pressed is often replaced (Work out the cost by Start, Start by
@@ -107,6 +119,15 @@ watch([view, () => !!props.estimate], async () => {
   ;(next ?? root.value)?.focus()
 })
 const ownKey = computed(() => props.status?.mode === 'byok')
+/** A batch bigger than the free model's daily allowance: a warning, never a block. */
+const overProvider = computed(() => (props.estimate ? providerLimitWarning(props.estimate) : ''))
+const providerWait = computed(() => providerWaitLine(props.job))
+/** What a stopped job kept: nothing said when it made nothing. */
+const keptLine = computed(() => {
+  const kept = props.job ? props.job.created ?? props.job.done : 0
+  if (kept <= 0) return ''
+  return kept === 1 ? ' That 1 is kept.' : ` Those ${kept} are kept.`
+})
 const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
 </script>
 
@@ -138,12 +159,15 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
 
       <div v-if="estimate" class="vmlb-guide-estimate">
         <p class="vmlb-guide-text vmlb-num">
-          About {{ tokens(estimate.estimated_tokens) }} tokens.<template v-if="estimate.remaining_tokens !== null"> You have {{ tokens(estimate.remaining_tokens) }} left this month.</template>
+          About {{ tokens(estimate.estimated_tokens) }} tokens.<template v-if="estimate.remaining_tokens !== null && !estimate.free_model"> You have {{ tokens(estimate.remaining_tokens) }} left this month.</template>
         </p>
-        <p v-if="ownKey" class="vmlb-guide-text">This uses your own key, so your AI provider charges you for these tokens.</p>
+        <p v-if="ownKey && !estimate.free_model" class="vmlb-guide-text">This uses your own key, so your AI provider charges you for these tokens.</p>
         <p class="vmlb-guide-hint">The text of {{ count(estimate.tasks, 'item') }} is sent to {{ estimate.destination }}.</p>
         <p v-if="!estimate.within_budget" class="vmlb-guide-warning" role="alert">
           <Icon name="alert" /> <span>That's more than you have left this month. Choose fewer items, or add your own key.</span>
+        </p>
+        <p v-else-if="overProvider" class="vmlb-guide-warning vmlb-num">
+          <Icon name="alert" /> <span>{{ overProvider }}</span>
         </p>
       </div>
 
@@ -189,12 +213,17 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
       >
         <div class="vmlb-guide-bar-fill" :style="{ transform: `scaleX(${job.total ? job.done / job.total : 0})` }" />
       </div>
+      <p v-if="providerWait" class="vmlb-guide-hint vmlb-num">{{ providerWait }}</p>
       <p class="vmlb-guide-hint">You can leave this page. The AI carries on, and this shows how far it got when you come back.</p>
     </template>
 
     <template v-else-if="view === 'failed' && job">
-      <p class="vmlb-guide-error" role="alert">
-        <Icon name="alert" /> Labelling stopped after {{ job.done }} of {{ job.total }}. Those {{ job.created ?? job.done }} are kept.
+      <p v-if="job.status === 'provider_limited'" class="vmlb-guide-warning" role="alert">
+        <Icon name="alert" />
+        <span>{{ job.error ? `${job.error.trim()} ` : '' }}Labelling stopped after {{ job.done }} of {{ job.total }}.{{ keptLine }}</span>
+      </p>
+      <p v-else class="vmlb-guide-error" role="alert">
+        <Icon name="alert" /> Labelling stopped after {{ job.done }} of {{ job.total }}.{{ keptLine }}
       </p>
       <div class="vmlb-guide-actions">
         <button
@@ -205,6 +234,15 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
           @click="carryOn"
         >
           {{ estimating ? 'Working out the cost…' : 'Carry on' }}
+        </button>
+        <button
+          v-if="job.status === 'provider_limited' && aiLabels > 0"
+          type="button"
+          class="vmlb-btn-secondary vmlb-guide-target"
+          :disabled="estimating"
+          @click="reviewKept"
+        >
+          {{ aiLabels === 1 ? 'Review the AI label' : `Review the ${aiLabels} AI labels` }}
         </button>
       </div>
     </template>

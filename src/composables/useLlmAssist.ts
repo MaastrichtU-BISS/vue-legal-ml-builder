@@ -80,8 +80,9 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
       if (!latest()) return
     }
     status.value = next
-    // A refusal at the limit outlasts a status read; an own key ends it.
-    budgetExhausted.value = next.mode === 'shared' && (next.remaining_tokens === 0 || budgetExhausted.value)
+    // A refusal at the limit outlasts a status read; an own key ends it. A free
+    // model is metered but never capped (BAIGLE #225), so it ends it too.
+    budgetExhausted.value = next.mode === 'shared' && !next.free_model && (next.remaining_tokens === 0 || budgetExhausted.value)
     if (progress) showProgress(progress)
     if (failed) throw failure
   }
@@ -115,6 +116,8 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
       errorRef.value = err instanceof Error ? err.message : fallback
       errorCode.value = refusal?.code ?? null
       errorMessage.value = errorRef.value
+      // The server never refuses a free model for the monthly limit, so a page
+      // that thinks the model is free has a stale status: it locks all the same.
       if (refusal?.code === 'budget_exhausted') budgetExhausted.value = true
       if (STATUS_CODES.includes(refusal?.code ?? '')) await loadStatus(datasetId).catch(() => undefined)
     } finally {
