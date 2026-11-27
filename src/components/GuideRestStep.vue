@@ -42,6 +42,8 @@ const emit = defineEmits<{
   (e: 'change'): void
   (e: 'start'): void
   (e: 'carry-on', scope: RestScope): void
+  /** After a stop: put the job aside and go to the AI labels it kept, to accept or check. */
+  (e: 'review'): void
   (e: 'accept'): void
   (e: 'check'): void
   /** Go on to Ready to train for this visit, leaving the rest for later. */
@@ -57,6 +59,8 @@ watch([scope, nextCount], () => emit('change'))
 
 /** The AI's labels are waiting, but the student chose to let it label more first. */
 const wantMore = ref(false)
+/** After a stop, the student chose the labels it kept over carrying on. */
+const reviewing = ref(false)
 /** Nothing is left for the AI to label, as the lists or the last estimate say. */
 const nothingMore = computed(() => props.labellable === 0 || props.estimate?.tasks === 0)
 /** Items the AI can still label, beside those waiting to be accepted. None once
@@ -73,7 +77,7 @@ const jobMade = computed(() => props.job?.status === 'completed' && (props.job.c
 const labelsReady = computed(
   () =>
     props.aiLabels > 0 &&
-    (nothingMore.value || jobMade.value || props.aiLabels - (props.tryWaiting ?? 0) > 0),
+    (reviewing.value || nothingMore.value || jobMade.value || props.aiLabels - (props.tryWaiting ?? 0) > 0),
 )
 const view = computed(() => {
   const status = props.job?.status
@@ -93,8 +97,15 @@ function carryOn() {
   wantMore.value = true
   emit('carry-on', chosen.value)
 }
+/** Go to the labels a stopped job kept: the Accept and Check actions. */
+function reviewKept() {
+  wantMore.value = false
+  reviewing.value = true
+  emit('review')
+}
 watch(view, (value) => {
   if (value === 'running') wantMore.value = false
+  if (value === 'running' || value === 'choose') reviewing.value = false
 })
 
 // The button pressed is often replaced (Work out the cost by Start, Start by
@@ -142,7 +153,7 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
 
       <div v-if="estimate" class="vmlb-guide-estimate">
         <p class="vmlb-guide-text vmlb-num">
-          About {{ tokens(estimate.estimated_tokens) }} tokens.<template v-if="estimate.remaining_tokens !== null"> You have {{ tokens(estimate.remaining_tokens) }} left this month.</template>
+          About {{ tokens(estimate.estimated_tokens) }} tokens.<template v-if="estimate.remaining_tokens !== null && !estimate.free_model"> You have {{ tokens(estimate.remaining_tokens) }} left this month.</template>
         </p>
         <p v-if="ownKey" class="vmlb-guide-text">This uses your own key, so your AI provider charges you for these tokens.</p>
         <p class="vmlb-guide-hint">The text of {{ count(estimate.tasks, 'item') }} is sent to {{ estimate.destination }}.</p>
@@ -217,6 +228,15 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
           @click="carryOn"
         >
           {{ estimating ? 'Working out the cost…' : 'Carry on' }}
+        </button>
+        <button
+          v-if="job.status === 'provider_limited' && aiLabels > 0"
+          type="button"
+          class="vmlb-btn-secondary vmlb-guide-target"
+          :disabled="estimating"
+          @click="reviewKept"
+        >
+          {{ aiLabels === 1 ? 'Review the AI label' : `Review the ${aiLabels} AI labels` }}
         </button>
       </div>
     </template>

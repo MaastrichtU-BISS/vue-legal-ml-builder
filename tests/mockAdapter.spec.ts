@@ -189,13 +189,23 @@ describe('the demo LLM', () => {
     // Another free model needs an answer on every item: 40, with 20 requests left today.
     await useModel(free[1].id)
     const estimate = await settle(adapter.estimateLlmAnnotation!(ds))
-    expect(estimate).toMatchObject({ tasks: 40, free_model: true, provider_daily_limit: 50, over_provider_limit: true, within_budget: true })
+    expect(estimate).toMatchObject({
+      tasks: 40, free_model: true, provider_daily_limit: 50, provider_daily_remaining: 20, provider_allowance_shared: false,
+      over_provider_limit: true, within_budget: true,
+    })
 
     const { job_id: jobId } = await settle(adapter.startLlmAnnotation!(ds))
     let job = await settle(adapter.getLlmJob!(jobId))
     for (let i = 0; i < 40 && (job.status === 'queued' || job.status === 'running'); i++) job = await settle(adapter.getLlmJob!(jobId))
     expect(job).toMatchObject({ status: 'provider_limited', total: 40, done: 20, created: 20, daily: true })
     expect(job.error).toContain('50 requests a day')
+  })
+
+  it("treats a :free id as free only at OpenRouter's address (BAIGLE #225 council)", async () => {
+    await settle(adapter.saveLlmKey!({ base_url: 'https://api.mistral.ai/v1', model: 'mistral-small:free', api_key: 'sk-demo' }))
+    expect(await settle(adapter.getLlmStatus!(ds))).toMatchObject({ mode: 'byok', free_model: false })
+    await settle(adapter.acknowledgeLlmDestination!(ds, 'api.mistral.ai'))
+    expect(await settle(adapter.estimateLlmAnnotation!(ds))).toMatchObject({ free_model: false, provider_daily_limit: null, over_provider_limit: false })
   })
 })
 

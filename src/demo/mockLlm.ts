@@ -13,6 +13,7 @@ import type {
   MLAdapter,
 } from '../types'
 import { demoSuggestion } from './demoClauses'
+import { isOpenRouterUrl } from '../annotation/llmAssist'
 
 // LLM assistance for the demo, in memory: no network calls. It keeps
 // legal-ml-core's rules (routes/llm.py) with its default settings.
@@ -92,9 +93,9 @@ export function createMockLlm(
       : { mode: 'shared' as const, destination: DEMO_LLM_DESTINATION, model: DEMO_LLM_MODEL }
   }
 
-  /** The model in use is free at the provider. */
+  /** The model in use is free at the provider: a `:free` id at OpenRouter. */
   function freeModel(): boolean {
-    return !!key?.model.endsWith(':free')
+    return !!key && isOpenRouterUrl(key.base_url) && key.model.endsWith(':free')
   }
 
   function remaining(): number | null {
@@ -206,6 +207,9 @@ export function createMockLlm(
       destination: credential().destination,
       free_model: free,
       provider_daily_limit: free ? FREE_DAILY_LIMIT : null,
+      provider_daily_remaining: free ? Math.max(FREE_DAILY_LIMIT - freeRequests, 0) : null,
+      // The demo's free models need the student's own key, so the allowance is theirs.
+      provider_allowance_shared: false,
       over_provider_limit: free && tasks.length > FREE_DAILY_LIMIT - freeRequests,
     }
     return { tasks, estimate: body }

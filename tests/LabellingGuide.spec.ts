@@ -799,6 +799,7 @@ const noShared = () =>
   llmStatus({ mode: 'none', destination: null, model: null, shared_key_allowed: false, shared_key_configured: false, remaining_tokens: null, acknowledged: false })
 const ownKey = (overrides = {}) =>
   llmStatus({ mode: 'byok', destination: 'openrouter.ai', key: { base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-haiku-5.5' }, remaining_tokens: null, acknowledged: false, ...overrides })
+const freeHint = 'Free models on OpenRouter allow about 20 requests a minute and 50 a day (1,000 a day once you\'ve bought $10 of credit).'
 const fieldLabel = (wrapper: Wrapper, id: string) => wrapper.find(`label[for="${id}"]`)
 
 async function typeKey(wrapper: Wrapper, key = 'sk-test') {
@@ -960,6 +961,49 @@ describe('step 2, Connect AI: the key', () => {
 
     await guide(wrapper).find('#vmlb-guide-model').setValue('meta-llama/llama-3.3-70b-instruct:free')
     expect(guide(wrapper).text()).toContain(hint)
+    wrapper.unmount()
+  })
+
+  it("tags only OpenRouter's :free ids without the server's flag, and another provider's :free id gets no hint (BAIGLE #225 council)", async () => {
+    const listLlmModels = vi.fn().mockResolvedValue({ models: [{ id: 'mistral-small' }, { id: 'mistral-tiny:free' }] })
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels } })
+    await guide(wrapper).find('#vmlb-guide-provider').setValue('mistral')
+    await (await typeKey(wrapper)).trigger('change')
+    await flushPromises()
+
+    const options = guide(wrapper).findAll('#vmlb-guide-model option').map((o) => o.text())
+    expect(options).toEqual(['mistral-small', 'mistral-tiny:free'])
+    await guide(wrapper).find('#vmlb-guide-model').setValue('mistral-tiny:free')
+    expect(guide(wrapper).text()).not.toContain(freeHint)
+    wrapper.unmount()
+  })
+
+  it("gives no hint for a :free id typed for another provider's address (BAIGLE #225 council)", async () => {
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()) } })
+    await guide(wrapper).find('#vmlb-guide-provider').setValue('custom')
+    await guide(wrapper).find('#vmlb-guide-base-url').setValue('https://api.example.com/v1')
+    await guide(wrapper).find('#vmlb-guide-model').setValue('some-model:free')
+    expect(guide(wrapper).text()).not.toContain(freeHint)
+    wrapper.unmount()
+  })
+
+  it('gives the hint for an OpenRouter :free id typed in, the models not listed (BAIGLE #225 council)', async () => {
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()) } })
+    await guide(wrapper).find('#vmlb-guide-model').setValue('meta-llama/llama-3.3-70b-instruct:free')
+    expect(guide(wrapper).text()).toContain(freeHint)
+    wrapper.unmount()
+  })
+
+  it('tags a free model whose name already says "(free)" only once (BAIGLE #225 council)', async () => {
+    const listLlmModels = vi.fn().mockResolvedValue({
+      models: [{ id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Meta: Llama 3.3 70B Instruct (free)', free: true }],
+    })
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels } })
+    await (await typeKey(wrapper)).trigger('change')
+    await flushPromises()
+
+    const options = guide(wrapper).findAll('#vmlb-guide-model option').map((o) => o.text())
+    expect(options).toEqual(['meta-llama/llama-3.3-70b-instruct:free · Meta: Llama 3.3 70B Instruct (free)'])
     wrapper.unmount()
   })
 

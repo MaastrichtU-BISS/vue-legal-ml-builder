@@ -818,6 +818,13 @@ function carryOn(scope: RestScope) {
   void estimateRest(scope)
 }
 
+/** After the provider's limit stopped the job: put it aside and show the
+ * labels it kept, to accept or check, without wanting more. */
+function reviewKept() {
+  llm.clearJob()
+  writeGuideJob(props.datasetId, null)
+}
+
 /** The student's explicit accept; the server allows it only after its passed
  * check, and says how many it accepted. */
 async function acceptRest() {
@@ -1121,6 +1128,7 @@ watch([stepView, showing], async ([next, state]) => {
             @change="llm.clearEstimate"
             @start="startRest"
             @carry-on="carryOn"
+            @review="reviewKept"
             @accept="acceptRest"
             @check="checkFirst"
             @finish="readyChosen = true"

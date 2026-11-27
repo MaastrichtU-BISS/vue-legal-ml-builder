@@ -451,6 +451,24 @@ describe('LLM assistance: the monthly limit', () => {
     wrapper.unmount()
   })
 
+  it('keeps Suggest, Estimate and saving the prompt open for a free model on the shared key with no tokens left (BAIGLE #225 council)', async () => {
+    const free = llmStatus({ remaining_tokens: 0, free_model: true })
+    const createLlmSuggestions = vi.fn().mockRejectedValue(refusal("You've reached the monthly limit.", 'budget_exhausted'))
+    const { wrapper } = await mounted({ getLlmStatus: vi.fn().mockResolvedValue(free), createLlmSuggestions })
+
+    expect(panel(wrapper).text()).not.toContain("You've used this month's limit on the shared key.")
+    expect(panel(wrapper).text()).not.toContain('tokens left this month')
+    expect(button(wrapper, 'Suggest labels for this batch')?.attributes('disabled')).toBeUndefined()
+    expect(button(wrapper, 'Estimate the cost')?.attributes('disabled')).toBeUndefined()
+    expect(button(wrapper, 'Save as a new version')?.attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('details.vmlb-llm-add-key').attributes('open')).toBeUndefined()
+
+    // A refusal for the monthly limit doesn't lock a free model out either.
+    await click(wrapper, 'Suggest labels for this batch')
+    expect(button(wrapper, 'Suggest labels for this batch')?.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('drops the limit warning once the meter is down, saying only that', async () => {
     const meterDown = llmStatus({
       remaining_tokens: null,
@@ -707,6 +725,33 @@ describe('LLM assistance: labelling many items at once', () => {
     wrapper.unmount()
   })
 
+  it("says how many of the free model's requests are left today, and leaves out the tokens left for a free model (BAIGLE #225 council)", async () => {
+    const over = { ...estimate, tasks: 80, free_model: true, provider_daily_limit: 50, provider_daily_remaining: 12, over_provider_limit: true }
+    const { wrapper } = await mounted({ estimateLlmAnnotation: vi.fn().mockResolvedValue(over) })
+
+    await click(wrapper, 'Estimate the cost')
+
+    expect(section(wrapper).text()).toContain(
+      "This free model has about 12 of its 50 requests a day left on OpenRouter, and this batch has 80 items. The job will stop when they run out; what's done is kept.",
+    )
+    expect(section(wrapper).text()).not.toContain('tokens left this month')
+    expect(button(wrapper, 'Start labelling 80 items')?.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it("says the platform's free model shares its daily allowance between everyone (BAIGLE #225 council)", async () => {
+    const over = { ...estimate, tasks: 80, free_model: true, provider_daily_limit: 50, provider_daily_remaining: 12, provider_allowance_shared: true, over_provider_limit: true }
+    const { wrapper } = await mounted({ estimateLlmAnnotation: vi.fn().mockResolvedValue(over) })
+
+    await click(wrapper, 'Estimate the cost')
+
+    expect(section(wrapper).text()).toContain(
+      "This platform's free model shares about 50 requests a day on OpenRouter between everyone, about 12 are left today, and this batch has 80 items. The job will stop when they run out; what's done is kept.",
+    )
+    expect(button(wrapper, 'Start labelling 80 items')?.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it("says a job is waiting for the provider, then that the provider stopped it with what was kept (BAIGLE #225)", async () => {
     vi.useFakeTimers()
     const error = 'This free model allows 50 requests a day on OpenRouter. That is used up for today.'
@@ -722,7 +767,7 @@ describe('LLM assistance: labelling many items at once', () => {
     await click(wrapper, 'Estimate the cost')
     await click(wrapper, 'Start labelling 3 items')
     await vi.advanceTimersByTimeAsync(3000)
-    expect(section(wrapper).text()).toContain("Waiting 20s for the provider's per-minute limit…")
+    expect(section(wrapper).text()).toContain("Waiting up to 20s for the provider's per-minute limit…")
 
     await vi.advanceTimersByTimeAsync(3000)
     expect(section(wrapper).text()).toContain(error)

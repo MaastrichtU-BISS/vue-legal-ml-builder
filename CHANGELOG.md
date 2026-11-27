@@ -18,19 +18,30 @@ tagged `vX.Y.Z`.
 - **Free models, and the AI provider's own rate limits** (BAIGLE #225). New,
   optional fields from legal-ml-core, which an older server leaves out:
   `LlmModelOption.free`, `LlmStatus.free_model`, the estimate's `free_model`,
-  `provider_daily_limit` and `over_provider_limit`, the job status
+  `provider_daily_limit`, `provider_daily_remaining`, `provider_allowance_shared`
+  and `over_provider_limit`, the job status
   `provider_limited` with its `retry_after` and `daily`, and a running job's
   `waiting_seconds`. `LlmRefusalError` gains `daily`.
-- The model picker tags free models "(free)", and once one is chosen says:
-  "Free models on OpenRouter allow about 20 requests a minute and 50 a day
-  (1,000 a day once you've bought $10 of credit)."
+- The model picker tags free models "(free)" (once, when the name already says
+  so), and once one is chosen, listed or typed, says: "Free models on
+  OpenRouter allow about 20 requests a minute and 50 a day (1,000 a day once
+  you've bought $10 of credit)." The server's `free` flag counts for any
+  provider; a `:free` id alone only at OpenRouter's address, so another
+  provider's `x:free` is just a name.
 - Do the rest, and the panel's "Label many items at once", warn when a batch
-  is bigger than the free model's daily allowance. It is only a warning: Start
-  stays enabled, and only `within_budget` holds it back, as before.
-- A running job waiting out the provider's per-minute limit says "Waiting
-  {n}s for the provider's per-minute limit…".
-- The demo lists two free models, counts their 50 requests a day, and stops a
-  bigger job with `provider_limited`, keeping what it made.
+  is bigger than what the free model has left today: "This free model has about
+  {left} of its {limit} requests a day left on OpenRouter, and this batch has
+  {n} items. The job will stop when they run out; what's done is kept." On the
+  platform's shared key it says the allowance is shared between everyone. It is
+  only a warning: Start stays enabled, and only `within_budget` holds it back,
+  as before.
+- A running job waiting out the provider's per-minute limit says "Waiting up
+  to {n}s for the provider's per-minute limit…".
+- After the provider's limit stopped a job, the guide offers "Review the {n} AI
+  labels" beside Carry on, to accept or check what it kept.
+- The demo lists two free models, counts their 50 requests a day (reporting
+  what is left), treats `:free` as free only at OpenRouter, and stops a bigger
+  job with `provider_limited`, keeping what it made.
 
 ### Changed
 
@@ -45,6 +56,10 @@ tagged `vX.Y.Z`.
   made. It is not the shared key's monthly limit, so it never sends the student
   to add a key. An LLM-chosen first batch it stopped stays in random order,
   with its reason.
+- **A free model on the shared key is never locked out** by the monthly token
+  limit: it is metered but not capped, so a status with `free_model` clears
+  the out-of-tokens state, a `budget_exhausted` refusal doesn't set it, and the
+  guide and panel leave out "tokens left this month".
 
 ## [0.17.1] - 2026-11-27
 

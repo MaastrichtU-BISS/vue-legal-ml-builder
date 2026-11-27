@@ -7,7 +7,7 @@ import {
   llmModelOptions,
   llmProviderById,
 } from '../annotation/llmProviders'
-import { FREE_MODEL_HINT } from '../annotation/llmAssist'
+import { FREE_MODEL_HINT, isFreeModel } from '../annotation/llmAssist'
 import type { LlmKeyInput, LlmModelOption, LlmRefusalError, LlmStatus, MLAdapter } from '../types'
 import Icon from './shared/Icon.vue'
 
@@ -51,9 +51,12 @@ const apiKey = ref('')
 const baseUrl = computed(() => (provider.value.id === CUSTOM_LLM_PROVIDER ? customUrl.value.trim() : provider.value.baseUrl))
 /** The provider's models once listed; null shows a text field. */
 const models = ref<LlmModelOption[] | null>(null)
-const modelOptions = computed(() => (models.value ? llmModelOptions(models.value, provider.value) : []))
-/** The model chosen is free at the provider, which limits it by requests a minute and a day. */
-const freeChosen = computed(() => modelOptions.value.some((o) => o.free && o.id === model.value.trim()))
+const modelOptions = computed(() => (models.value ? llmModelOptions(models.value, provider.value, baseUrl.value) : []))
+/** The model chosen is free at the provider, which limits it by requests a
+ * minute and a day: a listed one the server flags, or a `:free` id at OpenRouter. */
+const freeChosen = computed(
+  () => modelOptions.value.some((o) => o.free && o.id === model.value.trim()) || isFreeModel({ id: model.value }, baseUrl.value),
+)
 /** Listing the provider's models with the key typed in. */
 const checking = ref(false)
 /** Saving the key, its check included; guards against a second submit. */

@@ -161,7 +161,7 @@ watch([status, agreement], ([nextStatus, nextAgreement]) => emit('state', { stat
       </p>
       <p v-else-if="status.mode === 'shared'" class="vmlb-llm-status">
         Suggestions use the shared key. Text is sent to <strong>{{ status.destination }}</strong>.
-        <span v-if="status.remaining_tokens !== null" class="vmlb-muted vmlb-num">{{ tokens(status.remaining_tokens) }} tokens left this month.</span>
+        <span v-if="status.remaining_tokens !== null && !status.free_model" class="vmlb-muted vmlb-num">{{ tokens(status.remaining_tokens) }} tokens left this month.</span>
       </p>
       <p v-else-if="status.mode === 'byok'" class="vmlb-llm-status">
         Suggestions use your own key. Text is sent to <strong>{{ status.destination }}</strong>.
@@ -238,7 +238,7 @@ watch([status, agreement], ([nextStatus, nextAgreement]) => emit('state', { stat
           <p>
             {{ count(estimate.tasks, 'item') }}, about {{ tokens(estimate.estimated_tokens) }} tokens. Text is sent to
             {{ estimate.destination }}.
-            <template v-if="estimate.remaining_tokens !== null">{{ tokens(estimate.remaining_tokens) }} tokens left this month.</template>
+            <template v-if="estimate.remaining_tokens !== null && !estimate.free_model">{{ tokens(estimate.remaining_tokens) }} tokens left this month.</template>
           </p>
           <p v-if="!estimate.within_budget" class="vmlb-llm-warning" role="status">
             <Icon name="alert" /> This is more than your remaining monthly limit. Label fewer items, or add your own API key.

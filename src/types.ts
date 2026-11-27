@@ -390,8 +390,14 @@ export interface LlmEstimate {
   free_model?: boolean
   /** Requests a day the provider allows this free model; null when unknown or not free. */
   provider_daily_limit?: number | null
-  /** The batch needs more requests than the provider allows today. Only a
-   * warning: it never stops the job from starting (`within_budget` does). */
+  /** Requests left today at the provider for this free model, when known. */
+  provider_daily_remaining?: number | null
+  /** The credential is the platform's shared key, so every user of the
+   * platform draws on the one daily allowance. */
+  provider_allowance_shared?: boolean
+  /** The batch needs more requests than the provider allows today (what is
+   * left, when known). Only a warning: it never stops the job from starting
+   * (`within_budget` does). */
   over_provider_limit?: boolean
 }
 

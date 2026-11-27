@@ -32,12 +32,18 @@ export function llmProviderById(id: string): LlmProvider {
 }
 
 /** A provider's models as options, its default model first when listed. A
- * free model is tagged "(free)". */
-export function llmModelOptions(models: LlmModelOption[], provider: LlmProvider): { id: string; label: string; free: boolean }[] {
+ * free model is tagged "(free)", once if its name already says so. `baseUrl`
+ * is the one the models came from (a typed one for Another provider): only
+ * OpenRouter's `:free` ids are free without the server's flag. */
+export function llmModelOptions(
+  models: LlmModelOption[],
+  provider: LlmProvider,
+  baseUrl: string = provider.baseUrl,
+): { id: string; label: string; free: boolean }[] {
   const options = models.map((m) => {
-    const free = isFreeModel(m)
+    const free = isFreeModel(m, baseUrl)
     const label = m.name && m.name !== m.id ? `${m.id} · ${m.name}` : m.id
-    return { id: m.id, label: free ? `${label} (free)` : label, free }
+    return { id: m.id, label: free && !/\(free\)$/i.test(label) ? `${label} (free)` : label, free }
   })
   const at = provider.defaultModel ? options.findIndex((o) => o.id === provider.defaultModel) : -1
   return at > 0 ? [options[at], ...options.slice(0, at), ...options.slice(at + 1)] : options
