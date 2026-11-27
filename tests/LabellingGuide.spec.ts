@@ -2308,19 +2308,22 @@ describe('counting labels in one read (BAIGLE #224)', () => {
     wrapper.unmount()
   })
 
-  it('finds the labels in use in one read on a Dataset that names fewer than two, and refreshes them after each save', async () => {
-    const getAnnotationLabelCounts = vi.fn().mockResolvedValue({ Civil: 2, Tort: 1, Empty: 0 })
-    const { adapter, wrapper } = guideWith([], { getAnnotationLabelCounts })
+  it('on a Dataset that names fewer than two labels, still pages the labelled items once, held-out ones too, since the one read leaves them out', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValue({ Civil: 2 })
+    const pageAnnotationTasks = vi.fn().mockResolvedValue({
+      tasks: [{ id: 't1', annotation_label: 'Civil' }, { id: 't2', annotation_label: 'Tort' }],
+      total: 2,
+    })
+    const { wrapper } = guideWith([], { getAnnotationLabelCounts, pageAnnotationTasks })
     await flushPromises()
 
-    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(1)
-    expect(adapter.pageAnnotationTasks).not.toHaveBeenCalled()
+    expect(getAnnotationLabelCounts).not.toHaveBeenCalled()
+    expect(pageAnnotationTasks).toHaveBeenCalledTimes(1)
+    expect(pageAnnotationTasks.mock.calls[0][1]).toMatchObject({ includeHoldout: true })
     expect(wrapper.text()).toContain('Tort')
-    expect(wrapper.text()).not.toContain('Empty')
 
     await save(wrapper, 2)
-    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(3)
-    expect(adapter.pageAnnotationTasks).not.toHaveBeenCalled()
+    expect(pageAnnotationTasks).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 

@@ -245,16 +245,11 @@ watch(showing, (value) => {
 
 const PAGE = 500
 
-/** The server counted every label in one read last time: counts can then be
- * refreshed after each save, whatever the number of labels. */
-let oneRead = false
-/** The labels on the Dataset's labelled items with how many each, in one read;
- * null when the adapter or the server can't count them that way. */
+/** Every label's count in one read; null when the adapter or the server can't
+ * count them that way. Held-out items are left out, as in the per-label counts. */
 async function countsInOneRead(): Promise<Record<string, number> | null> {
   if (!props.adapter.getAnnotationLabelCounts) return null
-  const counts = await props.adapter.getAnnotationLabelCounts(props.projectId, props.datasetId)
-  oneRead = counts !== null
-  return counts
+  return props.adapter.getAnnotationLabelCounts(props.projectId, props.datasetId)
 }
 
 /** The labels on the Dataset's labelled items, with how many each: what step 1
@@ -262,8 +257,6 @@ async function countsInOneRead(): Promise<Record<string, number> | null> {
  * Pages through the labelled items, the one list that covers every source;
  * without it, the Model-led loop's counts while it runs. */
 async function findUsedLabels(): Promise<Record<string, number> | null> {
-  const counted = await countsInOneRead()
-  if (counted) return Object.fromEntries(Object.entries(counted).filter(([, n]) => n > 0))
   if (props.adapter.pageAnnotationTasks) {
     const counts: Record<string, number> = {}
     // Advance by what came back: an adapter may return fewer rows than asked.
@@ -349,10 +342,11 @@ let countsAsked = 0
 const countsStale = ref(false)
 async function refreshCounts() {
   if (loadState.value !== 'ready') return
-  // With fewer than two named labels and no count in one read, the used labels
-  // come from paging every labelled item: done once on load, not after each
-  // saved item (the workspace already knows the label just saved).
-  if (props.labels.length < 2 && !oneRead) return
+  // With fewer than two named labels, the used labels come from paging every
+  // labelled item, held-out ones too, since a label on any item is in use: done
+  // once on load, not after each saved item (the workspace already knows the
+  // label just saved).
+  if (props.labels.length < 2) return
   const asked = ++countsAsked
   try {
     const counts = await loadCounts()

@@ -24,9 +24,9 @@ tagged `vX.Y.Z`.
 
 - **The labelling guide counts labels in one request** (BAIGLE #224).
   With `getAnnotationLabelCounts`, it reads the counts once on load and once
-  after each saved label, instead of once per label, and a Dataset that names
-  fewer than two labels finds its labels in use without paging every labelled
-  item. Without it, or on a server that can't count this way, the guide counts
+  after each saved label, instead of once per label. A Dataset that names
+  fewer than two labels still pages its labelled items once on load, since a
+  label only on held-out items is in use too. Without it, or on a server that can't count this way, the guide counts
   as before. When a refresh fails, the last counts stay, with "Counts may be
   out of date. They refresh after your next label." until the next one works.
 - **Too many requests reads as plain words** (BAIGLE #224). The self-hosted
