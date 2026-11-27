@@ -11,6 +11,8 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-27
+
 ### Added
 
 - **`getAnnotationLabelCounts(projectId, datasetId)`**, an optional adapter
@@ -858,7 +860,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.1...HEAD
+[0.17.1]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.14.0...v0.15.0
