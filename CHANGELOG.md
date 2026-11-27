@@ -21,7 +21,9 @@ tagged `vX.Y.Z`.
   `provider_daily_limit`, `provider_daily_remaining`, `provider_allowance_shared`
   and `over_provider_limit`, the job status
   `provider_limited` with its `retry_after` and `daily`, and a running job's
-  `waiting_seconds`. `LlmRefusalError` gains `daily`.
+  `waiting_seconds`. `LlmRefusalError` gains `daily`, and `LlmErrorCode`
+  gains `job_running` (a second Start while a job runs, shown in the server's
+  words).
 - The model picker tags free models "(free)" (once, when the name already says
   so), and once one is chosen, listed or typed, says: "Free models on
   OpenRouter allow about 20 requests a minute and 50 a day (1,000 a day once
@@ -48,12 +50,12 @@ tagged `vX.Y.Z`.
 - **A provider's 429 keeps its code** (`provider_rate_limited`), with
   `retryAfter` and `daily`. With no words from the server, the self-hosted
   adapter names the provider, never this platform's "Too many requests just
-  now". Try it shows the server's words for it instead of "The AI didn't
+  now", and gives a wait over an hour and a half in hours, as that one does. Try it shows the server's words for it instead of "The AI didn't
   answer".
 - **A job the provider's limit stopped** (`provider_limited`) ends like a
   failed one that kept its work: the guide says the server's reason and how
   many were kept, and offers Carry on; the panel says how many suggestions were
-  made. It is not the shared key's monthly limit, so it never sends the student
+  made. A job stopped before it made anything says nothing is kept. It is not the shared key's monthly limit, so it never sends the student
   to add a key. An LLM-chosen first batch it stopped stays in random order,
   with its reason.
 - **A free model on the shared key is never locked out** by the monthly token

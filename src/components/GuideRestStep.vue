@@ -122,6 +122,11 @@ const ownKey = computed(() => props.status?.mode === 'byok')
 /** A batch bigger than the free model's daily allowance: a warning, never a block. */
 const overProvider = computed(() => (props.estimate ? providerLimitWarning(props.estimate) : ''))
 const providerWait = computed(() => providerWaitLine(props.job))
+/** What a stopped job kept: nothing said when it made nothing. */
+const keptLine = computed(() => {
+  const kept = props.job ? props.job.created ?? props.job.done : 0
+  return kept > 0 ? ` Those ${kept} are kept.` : ''
+})
 const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
 </script>
 
@@ -214,10 +219,10 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
     <template v-else-if="view === 'failed' && job">
       <p v-if="job.status === 'provider_limited'" class="vmlb-guide-warning" role="alert">
         <Icon name="alert" />
-        <span>{{ job.error ? `${job.error.trim()} ` : '' }}Labelling stopped after {{ job.done }} of {{ job.total }}. Those {{ job.created ?? job.done }} are kept.</span>
+        <span>{{ job.error ? `${job.error.trim()} ` : '' }}Labelling stopped after {{ job.done }} of {{ job.total }}.{{ keptLine }}</span>
       </p>
       <p v-else class="vmlb-guide-error" role="alert">
-        <Icon name="alert" /> Labelling stopped after {{ job.done }} of {{ job.total }}. Those {{ job.created ?? job.done }} are kept.
+        <Icon name="alert" /> Labelling stopped after {{ job.done }} of {{ job.total }}.{{ keptLine }}
       </p>
       <div class="vmlb-guide-actions">
         <button

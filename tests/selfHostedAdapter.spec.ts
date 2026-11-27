@@ -614,6 +614,13 @@ describe("the AI provider's own rate limit (BAIGLE #225)", () => {
     expect(err.message).toBe('The AI provider is limiting requests. Try again in 2 minutes.')
   })
 
+  it('gives a long per-minute wait in hours, as the platform\'s own limit does (BAIGLE #225 council)', async () => {
+    stubFetch(() => new Response(JSON.stringify({ code: 'provider_rate_limited', retry_after: 7200, daily: false }), { status: 429 }))
+    expect((await failure()).message).toBe('The AI provider is limiting requests. Try again in 2 hours.')
+    stubFetch(() => new Response(JSON.stringify({ code: 'provider_rate_limited', retry_after: 90 * 60, daily: false }), { status: 429 }))
+    expect((await failure()).message).toBe('The AI provider is limiting requests. Try again in 90 minutes.')
+  })
+
   it('says the daily allowance is used up when the server gives no words for the daily cap', async () => {
     stubFetch(() => new Response(JSON.stringify({ code: 'provider_rate_limited', retry_after: null, daily: true }), { status: 429 }))
     expect((await failure()).message).toBe("The AI provider's daily allowance for this model is used up. Try again tomorrow.")

@@ -784,6 +784,38 @@ describe('LLM assistance: labelling many items at once', () => {
     wrapper.unmount()
   })
 
+  it('says nothing is kept when the provider stopped the job before it made anything (BAIGLE #225 council)', async () => {
+    vi.useFakeTimers()
+    const error = 'This free model allows 50 requests a day on OpenRouter. That is used up for today.'
+    const { wrapper } = await mounted({
+      estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate),
+      startLlmAnnotation: vi.fn().mockResolvedValue({ job_id: 'job-1', estimate }),
+      getLlmJob: vi.fn().mockResolvedValue({ status: 'provider_limited', total: 3, done: 0, created: 0, invalid: 0, error, daily: true, retry_after: 3600 }),
+    })
+
+    await click(wrapper, 'Estimate the cost')
+    await click(wrapper, 'Start labelling 3 items')
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(section(wrapper).text()).toContain(error)
+    expect(section(wrapper).text()).toContain('Stopped after 0 of 3 items.')
+    expect(section(wrapper).text()).not.toContain('kept')
+    wrapper.unmount()
+  })
+
+  it("shows the server's words when a Start is refused because a job is already running (BAIGLE #225 council)", async () => {
+    const words = 'A labelling job is already running for you. Wait for it to finish, or stop it first.'
+    const refused = Object.assign(new Error(words), { status: 409, code: 'job_running' })
+    const { wrapper } = await mounted({
+      estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate),
+      startLlmAnnotation: vi.fn().mockRejectedValue(refused),
+    })
+
+    await click(wrapper, 'Estimate the cost')
+    await click(wrapper, 'Start labelling 3 items')
+    expect(wrapper.find('.vmlb-alert-error').text()).toBe(words)
+    wrapper.unmount()
+  })
+
   it('says why a job failed', async () => {
     vi.useFakeTimers()
     const { wrapper } = await mounted({

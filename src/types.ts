@@ -431,6 +431,7 @@ export type LlmErrorCode =
   | 'credential_unusable'
   | 'llm_failed'
   | 'provider_rate_limited'
+  | 'job_running'
 
 /** An adapter's rejection of an LLM call. `code` says what to offer next, and
  * `destination` is the current one when it must be acknowledged again. */

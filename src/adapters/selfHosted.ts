@@ -75,6 +75,8 @@ function tooManyRequestsMessage(retryAfter?: number): string {
 function providerLimitMessage(retryAfter: number | undefined, daily: boolean): string {
   if (daily) return "The AI provider's daily allowance for this model is used up. Try again tomorrow."
   if (retryAfter === undefined) return 'The AI provider is limiting requests. Wait a minute and try again.'
+  // Worded as tooManyRequestsMessage: minutes up to an hour and a half, then hours.
+  if (retryAfter > 90 * 60) return `The AI provider is limiting requests. Try again in ${Math.ceil(retryAfter / 3600)} hours.`
   const minutes = Math.max(1, Math.ceil(retryAfter / 60))
   return `The AI provider is limiting requests. Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`
 }

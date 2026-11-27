@@ -262,6 +262,23 @@ describe("step 5, Do the rest: a free model's daily allowance (BAIGLE #225)", ()
     wrapper.unmount()
   })
 
+  it('says nothing is kept when the provider stopped the job before it made anything (BAIGLE #225 council)', async () => {
+    localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
+    const error = 'This free model allows 50 requests a day on OpenRouter. That is used up for today.'
+    const { wrapper } = await mounted({
+      overrides: {
+        getLlmJob: vi.fn().mockResolvedValue({ status: 'provider_limited', total: 28, done: 0, created: 0, error, retry_after: 7200, daily: true }),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 28 })),
+      },
+    })
+
+    const said = alerts(wrapper).join(' ')
+    expect(said).toContain(error)
+    expect(said).toContain('Labelling stopped after 0 of 28.')
+    expect(said).not.toContain('kept')
+    wrapper.unmount()
+  })
+
   it('offers the AI labels the stopped job kept, to accept or check, beside Carry on (BAIGLE #225 council)', async () => {
     localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
     const made = Array.from({ length: 20 }, (_, i) => aiLabel(i))

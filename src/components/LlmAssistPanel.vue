@@ -53,7 +53,10 @@ const jobSummary = computed(() => {
   // The provider's limit stopped it: the server's reason shows below, with what was kept here.
   if (value?.status === 'provider_limited') {
     const created = value.created ?? value.done
-    return `Stopped after ${value.done} of ${count(value.total, 'item')}. The ${count(created, 'suggestion')} made ${created === 1 ? 'is' : 'are'} kept.`
+    const stopped = `Stopped after ${value.done} of ${count(value.total, 'item')}.`
+    // Nothing made: nothing to say is kept.
+    if (created === 0) return stopped
+    return `${stopped} The ${count(created, 'suggestion')} made ${created === 1 ? 'is' : 'are'} kept.`
   }
   if (value?.status !== 'completed') return ''
   const created = value.created ?? 0
