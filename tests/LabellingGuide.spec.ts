@@ -942,6 +942,27 @@ describe('step 2, Connect AI: the key', () => {
     wrapper.unmount()
   })
 
+  it('tags free models in the picker and says what a free model allows once one is chosen (BAIGLE #225)', async () => {
+    const listLlmModels = vi.fn().mockResolvedValue({
+      models: [
+        { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5' },
+        { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B', free: true },
+      ],
+    })
+    const { wrapper } = await mounted({ labels: ['Civil', 'Criminal'], overrides: { getLlmStatus: vi.fn().mockResolvedValue(noShared()), listLlmModels } })
+    await (await typeKey(wrapper)).trigger('change')
+    await flushPromises()
+
+    const options = guide(wrapper).findAll('#vmlb-guide-model option').map((o) => o.text())
+    expect(options).toEqual(['anthropic/claude-haiku-5.5 · Claude Haiku 5.5', 'meta-llama/llama-3.3-70b-instruct:free · Llama 3.3 70B (free)'])
+    const hint = 'Free models on OpenRouter allow about 20 requests a minute and 50 a day (1,000 a day once you\'ve bought $10 of credit).'
+    expect(guide(wrapper).text()).not.toContain(hint)
+
+    await guide(wrapper).find('#vmlb-guide-model').setValue('meta-llama/llama-3.3-70b-instruct:free')
+    expect(guide(wrapper).text()).toContain(hint)
+    wrapper.unmount()
+  })
+
   it("saves a key the provider couldn't be asked about, and says it is saved, not that it works", async () => {
     // legal-ml-core's POST /llm/models: provider_unreachable (502).
     const listLlmModels = vi.fn().mockRejectedValue(refusal('The provider could not be reached. Check the base URL and try again.', 'provider_unreachable'))
@@ -1483,6 +1504,20 @@ describe('step 4, Try it', () => {
     await flushPromises()
     expect(guide(wrapper).text()).not.toContain('Asking the AI…')
     expect(box.contains(card(wrapper).element)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it("shows the provider's own words when it is limiting requests, not this platform's (BAIGLE #225)", async () => {
+    const words = 'This free model allows about 20 requests a minute on OpenRouter. Try again in 1 minute.'
+    const createLlmSuggestions = vi.fn().mockRejectedValue(refusal(words, 'provider_rate_limited', { status: 429, retryAfter: 40, daily: false }))
+    const { wrapper } = await onTry({ createLlmSuggestions })
+
+    expect(alerts(wrapper)).toContain(words)
+    expect(alerts(wrapper).join(' ')).not.toContain('Too many requests just now')
+    expect(alerts(wrapper)).not.toContain("The AI didn't answer. Label this one yourself, or try again.")
+    expect(button(wrapper, 'Try again')).toBeDefined()
+    // Not a key failure: the guide stays on Try it.
+    expect(currentStep(wrapper).text()).toContain('Try it')
     wrapper.unmount()
   })
 

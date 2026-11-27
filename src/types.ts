@@ -310,6 +310,9 @@ export interface LlmStatus {
   shared_key_unavailable_reason?: string | null
   /** Sent when asked about a Dataset: whether its Project acknowledged `destination`. */
   acknowledged?: boolean
+  /** The model in use is free at its provider (an OpenRouter `:free` model), so
+   * the provider limits it by requests a minute and a day. Older servers omit it. */
+  free_model?: boolean
 }
 
 export interface LlmKeyInput {
@@ -322,6 +325,8 @@ export interface LlmKeyInput {
 export interface LlmModelOption {
   id: string
   name?: string
+  /** Free at the provider (OpenRouter's `:free` models). Older servers omit it. */
+  free?: boolean
 }
 
 /** What a model listing checks: a key typed in, or the key already saved. */
@@ -381,9 +386,18 @@ export interface LlmEstimate {
   remaining_tokens: number | null
   within_budget: boolean
   destination: string
+  /** The model is free at its provider. Older servers omit it. */
+  free_model?: boolean
+  /** Requests a day the provider allows this free model; null when unknown or not free. */
+  provider_daily_limit?: number | null
+  /** The batch needs more requests than the provider allows today. Only a
+   * warning: it never stops the job from starting (`within_budget` does). */
+  over_provider_limit?: boolean
 }
 
-export type LlmJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'budget_exhausted'
+/** `provider_limited`: the provider's rate limit stopped the job (its daily
+ * cap, or per-minute limits that kept coming); the work done is kept. */
+export type LlmJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'budget_exhausted' | 'provider_limited'
 
 export interface LlmJob {
   status: LlmJobStatus
@@ -392,6 +406,12 @@ export interface LlmJob {
   created?: number
   invalid?: number
   error?: string
+  /** While running: seconds the worker waits out the provider's per-minute limit before it retries. */
+  waiting_seconds?: number | null
+  /** With `provider_limited`: seconds until the provider allows requests again, when known. */
+  retry_after?: number | null
+  /** With `provider_limited`: the provider's daily cap stopped it, not its per-minute limit. */
+  daily?: boolean
 }
 
 /** The `code` legal-ml-core puts on an LLM refusal. */
@@ -404,12 +424,15 @@ export type LlmErrorCode =
   | 'agreement_not_met'
   | 'credential_unusable'
   | 'llm_failed'
+  | 'provider_rate_limited'
 
 /** An adapter's rejection of an LLM call. `code` says what to offer next, and
  * `destination` is the current one when it must be acknowledged again. */
 export interface LlmRefusalError extends Error {
   code?: LlmErrorCode | string
   destination?: string
+  /** With `provider_rate_limited`: the provider's daily cap, not its per-minute limit. */
+  daily?: boolean
 }
 
 // ---------------------------------------------------------------------------

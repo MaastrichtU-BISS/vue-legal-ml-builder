@@ -17,6 +17,8 @@ const props = defineProps<{
   agreement: LlmAgreement | null
   /** A label is being saved. */
   busy: boolean
+  /** Why the last request failed, when the AI provider limited it: its own words. */
+  failure?: string | null
 }>()
 const emit = defineEmits<{
   (e: 'accept', suggestion: LlmSuggestion): void
@@ -112,7 +114,11 @@ watch(
       </p>
 
       <div v-else-if="view === 'failed'" class="vmlb-guide-try-failed">
-        <p role="alert"><Icon name="alert" /> The AI didn't answer. Label this one yourself, or try again.</p>
+        <template v-if="failure">
+          <p role="alert"><Icon name="alert" /> {{ failure }}</p>
+          <p class="vmlb-guide-text">Label this one yourself, or try again later.</p>
+        </template>
+        <p v-else role="alert"><Icon name="alert" /> The AI didn't answer. Label this one yourself, or try again.</p>
         <button type="button" class="vmlb-btn-secondary vmlb-guide-target" @click="emit('retry')">Try again</button>
       </div>
 

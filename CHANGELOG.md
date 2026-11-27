@@ -11,6 +11,41 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-27
+
+### Added
+
+- **Free models, and the AI provider's own rate limits** (BAIGLE #225). New,
+  optional fields from legal-ml-core, which an older server leaves out:
+  `LlmModelOption.free`, `LlmStatus.free_model`, the estimate's `free_model`,
+  `provider_daily_limit` and `over_provider_limit`, the job status
+  `provider_limited` with its `retry_after` and `daily`, and a running job's
+  `waiting_seconds`. `LlmRefusalError` gains `daily`.
+- The model picker tags free models "(free)", and once one is chosen says:
+  "Free models on OpenRouter allow about 20 requests a minute and 50 a day
+  (1,000 a day once you've bought $10 of credit)."
+- Do the rest, and the panel's "Label many items at once", warn when a batch
+  is bigger than the free model's daily allowance. It is only a warning: Start
+  stays enabled, and only `within_budget` holds it back, as before.
+- A running job waiting out the provider's per-minute limit says "Waiting
+  {n}s for the provider's per-minute limit…".
+- The demo lists two free models, counts their 50 requests a day, and stops a
+  bigger job with `provider_limited`, keeping what it made.
+
+### Changed
+
+- **A provider's 429 keeps its code** (`provider_rate_limited`), with
+  `retryAfter` and `daily`. With no words from the server, the self-hosted
+  adapter names the provider, never this platform's "Too many requests just
+  now". Try it shows the server's words for it instead of "The AI didn't
+  answer".
+- **A job the provider's limit stopped** (`provider_limited`) ends like a
+  failed one that kept its work: the guide says the server's reason and how
+  many were kept, and offers Carry on; the panel says how many suggestions were
+  made. It is not the shared key's monthly limit, so it never sends the student
+  to add a key. An LLM-chosen first batch it stopped stays in random order,
+  with its reason.
+
 ## [0.17.1] - 2026-11-27
 
 ### Added
@@ -868,7 +903,8 @@ tagged `vX.Y.Z`.
   monitoring), extracted from the `reducing_digital_divide` SvelteKit frontend
   and driven through a host-supplied `MLAdapter`.
 
-[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.1...HEAD
+[Unreleased]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/shashankmc/vue-legal-ml-builder/compare/v0.15.0...v0.16.0

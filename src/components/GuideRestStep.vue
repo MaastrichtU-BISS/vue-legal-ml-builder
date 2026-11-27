@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { count } from '../annotation/annotationState'
 import { CHECK_SAMPLE, type RestScope } from '../annotation/guide'
-import { tokens } from '../annotation/llmAssist'
+import { providerLimitWarning, providerWaitLine, tokens } from '../annotation/llmAssist'
 import type { LlmEstimate, LlmJob, LlmStatus } from '../types'
 import Icon from './shared/Icon.vue'
 
@@ -78,7 +78,8 @@ const labelsReady = computed(
 const view = computed(() => {
   const status = props.job?.status
   if (status === 'queued' || status === 'running') return 'running'
-  if (status === 'failed') return 'failed'
+  // The provider's limit stopped it: like a failure, what was made is kept.
+  if (status === 'failed' || status === 'provider_limited') return 'failed'
   if (labelsReady.value && (!wantMore.value || nothingMore.value)) return 'done'
   // What is left already has the AI's answer: only the student can label it.
   // An estimate covering no items says the same, if the lists changed meanwhile.
@@ -107,6 +108,9 @@ watch([view, () => !!props.estimate], async () => {
   ;(next ?? root.value)?.focus()
 })
 const ownKey = computed(() => props.status?.mode === 'byok')
+/** A batch bigger than the free model's daily allowance: a warning, never a block. */
+const overProvider = computed(() => (props.estimate ? providerLimitWarning(props.estimate) : ''))
+const providerWait = computed(() => providerWaitLine(props.job))
 const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
 </script>
 
@@ -144,6 +148,9 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
         <p class="vmlb-guide-hint">The text of {{ count(estimate.tasks, 'item') }} is sent to {{ estimate.destination }}.</p>
         <p v-if="!estimate.within_budget" class="vmlb-guide-warning" role="alert">
           <Icon name="alert" /> <span>That's more than you have left this month. Choose fewer items, or add your own key.</span>
+        </p>
+        <p v-else-if="overProvider" class="vmlb-guide-warning vmlb-num">
+          <Icon name="alert" /> <span>{{ overProvider }}</span>
         </p>
       </div>
 
@@ -189,11 +196,16 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
       >
         <div class="vmlb-guide-bar-fill" :style="{ transform: `scaleX(${job.total ? job.done / job.total : 0})` }" />
       </div>
+      <p v-if="providerWait" class="vmlb-guide-hint vmlb-num">{{ providerWait }}</p>
       <p class="vmlb-guide-hint">You can leave this page. The AI carries on, and this shows how far it got when you come back.</p>
     </template>
 
     <template v-else-if="view === 'failed' && job">
-      <p class="vmlb-guide-error" role="alert">
+      <p v-if="job.status === 'provider_limited'" class="vmlb-guide-warning" role="alert">
+        <Icon name="alert" />
+        <span>{{ job.error ? `${job.error.trim()} ` : '' }}Labelling stopped after {{ job.done }} of {{ job.total }}. Those {{ job.created ?? job.done }} are kept.</span>
+      </p>
+      <p v-else class="vmlb-guide-error" role="alert">
         <Icon name="alert" /> Labelling stopped after {{ job.done }} of {{ job.total }}. Those {{ job.created ?? job.done }} are kept.
       </p>
       <div class="vmlb-guide-actions">

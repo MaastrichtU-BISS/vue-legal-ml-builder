@@ -1,4 +1,4 @@
-import type { AnnotationTask, Id, LlmSuggestion } from '../types'
+import type { AnnotationTask, Id, LlmEstimate, LlmJob, LlmSuggestion } from '../types'
 import { count } from './annotationState'
 
 /** legal-ml-core's default for `LLM_MAX_SYNC_TASKS`, for servers whose status does not report `max_sync_tasks`. */
@@ -63,4 +63,34 @@ export function tokens(value: number): string {
 
 export function percent(share: number): string {
   return `${Math.round(share * 100)}%`
+}
+
+// ---------------------------------------------------------------------------
+// Free models (BAIGLE #225): the provider, not this platform, limits them by
+// requests a minute and a day.
+// ---------------------------------------------------------------------------
+
+/** Said once a free model is chosen. */
+export const FREE_MODEL_HINT =
+  "Free models on OpenRouter allow about 20 requests a minute and 50 a day (1,000 a day once you've bought $10 of credit)."
+
+/** Free at the provider: flagged by the server, or an OpenRouter `:free` id. */
+export function isFreeModel(model: { id: string; free?: boolean }): boolean {
+  return model.free === true || model.id.endsWith(':free')
+}
+
+/** The warning before a batch bigger than the free model's daily allowance.
+ * Empty when it fits. It never stops the job from starting. */
+export function providerLimitWarning(estimate: Pick<LlmEstimate, 'tasks' | 'over_provider_limit' | 'provider_daily_limit'>): string {
+  if (!estimate.over_provider_limit) return ''
+  const allows = typeof estimate.provider_daily_limit === 'number'
+    ? `about ${tokens(estimate.provider_daily_limit)} requests a day`
+    : 'only so many requests a day'
+  return `This free model allows ${allows} on OpenRouter, and this batch has ${count(estimate.tasks, 'item')}. The job will stop when the allowance runs out; what's done is kept.`
+}
+
+/** A running job waiting out the provider's per-minute limit; empty otherwise. */
+export function providerWaitLine(job: Pick<LlmJob, 'status' | 'waiting_seconds'> | null): string {
+  const wait = job?.status === 'running' ? job.waiting_seconds : null
+  return typeof wait === 'number' && wait > 0 ? `Waiting ${Math.ceil(wait)}s for the provider's per-minute limit…` : ''
 }

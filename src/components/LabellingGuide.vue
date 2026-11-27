@@ -313,7 +313,12 @@ async function loopRunning(): Promise<boolean> {
   }
 }
 
-/** A 429's own words (how long to wait), or null for any other failure. */
+/** The codes of a 429: this platform's limit, or the AI provider's (BAIGLE #225). */
+const RATE_LIMIT_CODES = ['rate_limited', 'provider_rate_limited']
+
+/** A 429's own words (how long to wait), or null for any other failure. The
+ * server words the AI provider's limit itself, so it is never called this
+ * platform's "Too many requests". */
 function tooManyRequests(err: unknown): string | null {
   if (!(err instanceof Error) || (err as RefusalError).status !== 429) return null
   return err.message.trim() || null
@@ -329,7 +334,7 @@ async function load() {
   try {
     ;[running] = await Promise.all([announcedLoad ? false : loopRunning(), llm.refresh(props.datasetId)])
     // A refusal for too many requests keeps its wait (the host's code says so).
-    if (llm.error.value) throw Object.assign(new Error(llm.error.value), { status: llm.errorCode.value === 'rate_limited' ? 429 : undefined })
+    if (llm.error.value) throw Object.assign(new Error(llm.error.value), { status: RATE_LIMIT_CODES.includes(llm.errorCode.value ?? '') ? 429 : undefined })
     perLabel.value = await loadCounts()
     staleNote.value = ''
     if (restCandidate.value) await loadRest()
@@ -505,6 +510,10 @@ const outcomes = ref<Record<string, Exclude<TryView, 'holdout' | 'ready' | 'idle
 const askKey = computed(() =>
   props.currentTaskId ? `${props.currentTaskId}:${inUse.value.promptVersion ?? ''}:${inUse.value.model ?? ''}` : null,
 )
+/** A request the AI provider refused for its own rate limit, by the same key:
+ * the server's words, so the student knows it is the provider, not this platform. */
+const providerLimits = ref<Record<string, string>>({})
+const tryFailure = computed(() => (askKey.value ? providerLimits.value[askKey.value] ?? null : null))
 /** The prompt couldn't be read, so its version is unknown: only what this
  * visit asked for, from the prompt in use, is the prompt's own. */
 const promptFailed = computed(() => !!props.adapter.getLlmPrompt && prompt.value === null && !!promptError.value)
@@ -568,7 +577,12 @@ async function askForSuggestion() {
   const batch = await llm.suggestOne(props.datasetId, taskId)
   let outcome: (typeof outcomes.value)[string] = 'answered'
   if (batch) asked.value = [...asked.value, ...batch.suggestions.filter((s) => s.status === 'pending')]
-  if (!batch) outcome = 'failed'
+  if (!batch) {
+    outcome = 'failed'
+    if (llm.errorCode.value === 'provider_rate_limited' && llm.suggestError.value) {
+      providerLimits.value = { ...providerLimits.value, [key]: llm.suggestError.value.trim() }
+    }
+  }
   else if (!batch.suggestions.length && batch.invalid) outcome = 'invalid'
   // Already asked with the prompt in use, but its version is unknown, so the
   // suggestion waiting from it can't be told from an older one's: not "no
@@ -583,6 +597,8 @@ async function retrySuggestion() {
   if (!askKey.value) return
   const { [askKey.value]: _failed, ...rest } = outcomes.value
   outcomes.value = rest
+  const { [askKey.value]: _limit, ...limits } = providerLimits.value
+  providerLimits.value = limits
   // With the prompt unread, the server skips an item already asked about: read
   // it first, so a suggestion waiting from it shows instead of failing again.
   if (promptFailed.value) await syncDescriptions()
@@ -1120,6 +1136,7 @@ watch([stepView, showing], async ([next, state]) => {
       :labels="labels"
       :view="tryView"
       :suggestion="trySuggestion"
+      :failure="tryFailure"
       :agreement="check"
       :busy="!!busy"
       @accept="answer($event.id)"

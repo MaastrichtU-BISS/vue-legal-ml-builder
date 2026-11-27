@@ -694,6 +694,44 @@ describe('LLM assistance: labelling many items at once', () => {
     wrapper.unmount()
   })
 
+  it("warns when a free model's daily allowance is smaller than the batch, and still lets it start (BAIGLE #225)", async () => {
+    const over = { ...estimate, tasks: 80, free_model: true, provider_daily_limit: 50, over_provider_limit: true }
+    const { wrapper } = await mounted({ estimateLlmAnnotation: vi.fn().mockResolvedValue(over) })
+
+    await click(wrapper, 'Estimate the cost')
+
+    expect(section(wrapper).text()).toContain(
+      "This free model allows about 50 requests a day on OpenRouter, and this batch has 80 items. The job will stop when the allowance runs out; what's done is kept.",
+    )
+    expect(button(wrapper, 'Start labelling 80 items')?.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it("says a job is waiting for the provider, then that the provider stopped it with what was kept (BAIGLE #225)", async () => {
+    vi.useFakeTimers()
+    const error = 'This free model allows 50 requests a day on OpenRouter. That is used up for today.'
+    const getLlmJob = vi.fn()
+      .mockResolvedValueOnce({ status: 'running', total: 3, done: 1, created: 1, waiting_seconds: 20 })
+      .mockResolvedValue({ status: 'provider_limited', total: 3, done: 2, created: 2, invalid: 0, error, daily: true, retry_after: 3600 })
+    const { wrapper } = await mounted({
+      estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate),
+      startLlmAnnotation: vi.fn().mockResolvedValue({ job_id: 'job-1', estimate }),
+      getLlmJob,
+    })
+
+    await click(wrapper, 'Estimate the cost')
+    await click(wrapper, 'Start labelling 3 items')
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(section(wrapper).text()).toContain("Waiting 20s for the provider's per-minute limit…")
+
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(section(wrapper).text()).toContain(error)
+    expect(section(wrapper).text()).toContain('Stopped after 2 of 3 items. The 2 suggestions made are kept.')
+    // Not the shared key's monthly limit: the own-key form stays closed.
+    expect(wrapper.find('details.vmlb-llm-add-key').attributes('open')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('says why a job failed', async () => {
     vi.useFakeTimers()
     const { wrapper } = await mounted({

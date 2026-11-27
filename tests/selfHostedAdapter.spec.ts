@@ -578,3 +578,44 @@ describe('too many requests (BAIGLE #224)', () => {
     expect((await failure()).message).toBe('Request failed: 500 Internal Server Error')
   })
 })
+
+describe("the AI provider's own rate limit (BAIGLE #225)", () => {
+  const failure = async () => {
+    try {
+      await createSelfHostedAdapter({ apiUrl: '/api' }).createLlmSuggestions!('ds-1', ['t1'])
+    } catch (err) {
+      return err as Error & { status?: number; retryAfter?: number; code?: string; daily?: boolean }
+    }
+    throw new Error('expected a failure')
+  }
+
+  it("keeps the provider's code, the wait and whether it is the daily cap, with the server's words", async () => {
+    const body = { error: 'This free model allows 50 requests a day on OpenRouter. That is used up for today.', code: 'provider_rate_limited', retry_after: 3600, daily: true }
+    stubFetch(() => new Response(JSON.stringify(body), { status: 429, headers: { 'Retry-After': '3600' } }))
+    const err = await failure()
+    expect(err.code).toBe('provider_rate_limited')
+    expect(err.status).toBe(429)
+    expect(err.retryAfter).toBe(3600)
+    expect(err.daily).toBe(true)
+    expect(err.message).toBe(body.error)
+  })
+
+  it('marks a per-minute limit as not daily', async () => {
+    stubFetch(() => new Response(JSON.stringify({ error: 'Wait.', code: 'provider_rate_limited', retry_after: 20, daily: false }), { status: 429 }))
+    const err = await failure()
+    expect(err.daily).toBe(false)
+    expect(err.retryAfter).toBe(20)
+  })
+
+  it("names the provider, not this platform, when the server gives no words", async () => {
+    stubFetch(() => new Response(JSON.stringify({ code: 'provider_rate_limited', retry_after: 120, daily: false }), { status: 429 }))
+    const err = await failure()
+    expect(err.message).not.toContain('Too many requests just now')
+    expect(err.message).toBe('The AI provider is limiting requests. Try again in 2 minutes.')
+  })
+
+  it('says the daily allowance is used up when the server gives no words for the daily cap', async () => {
+    stubFetch(() => new Response(JSON.stringify({ code: 'provider_rate_limited', retry_after: null, daily: true }), { status: 429 }))
+    expect((await failure()).message).toBe("The AI provider's daily allowance for this model is used up. Try again tomorrow.")
+  })
+})

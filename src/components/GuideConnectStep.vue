@@ -7,6 +7,7 @@ import {
   llmModelOptions,
   llmProviderById,
 } from '../annotation/llmProviders'
+import { FREE_MODEL_HINT } from '../annotation/llmAssist'
 import type { LlmKeyInput, LlmModelOption, LlmRefusalError, LlmStatus, MLAdapter } from '../types'
 import Icon from './shared/Icon.vue'
 
@@ -51,6 +52,8 @@ const baseUrl = computed(() => (provider.value.id === CUSTOM_LLM_PROVIDER ? cust
 /** The provider's models once listed; null shows a text field. */
 const models = ref<LlmModelOption[] | null>(null)
 const modelOptions = computed(() => (models.value ? llmModelOptions(models.value, provider.value) : []))
+/** The model chosen is free at the provider, which limits it by requests a minute and a day. */
+const freeChosen = computed(() => modelOptions.value.some((o) => o.free && o.id === model.value.trim()))
 /** Listing the provider's models with the key typed in. */
 const checking = ref(false)
 /** Saving the key, its check included; guards against a second submit. */
@@ -284,6 +287,7 @@ async function onAllow() {
             <option v-for="o in modelOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
           </select>
           <input v-else id="vmlb-guide-model" v-model="model" name="model" type="text" class="vmlb-guide-input" :disabled="busy" />
+          <p v-if="freeChosen" class="vmlb-guide-hint">{{ FREE_MODEL_HINT }}</p>
           <p v-if="listNote" class="vmlb-guide-hint">{{ listNote }}</p>
           <p v-else-if="!models && adapter.listLlmModels" class="vmlb-guide-hint">Paste your key to choose from this provider's models.</p>
         </div>
