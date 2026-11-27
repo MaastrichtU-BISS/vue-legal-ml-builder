@@ -351,6 +351,15 @@ export function createMockAdapter(): MLAdapter {
           .map((t) => ({ ...t })),
       )
     },
+    // As legal-ml-core's queue stats: annotated items not held back, by label.
+    async getAnnotationLabelCounts(_projectId, datasetId) {
+      const counts: Record<string, number> = {}
+      for (const t of tasksOf(datasetId)) {
+        const name = t.status === 'annotated' && !t.is_holdout ? String(t.annotation_label ?? '').trim() : ''
+        if (name) counts[name] = (counts[name] ?? 0) + 1
+      }
+      return delay(counts)
+    },
     async saveAnnotation(taskId, value) {
       return delay(label(taskOf(taskId), String(value), 'human'))
     },

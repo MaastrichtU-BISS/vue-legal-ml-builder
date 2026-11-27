@@ -11,8 +11,28 @@ tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
+### Added
+
+- **`getAnnotationLabelCounts(projectId, datasetId)`**, an optional adapter
+  method that reads every label's count in one request. The self-hosted
+  adapter reads `GET /annotation/projects/<id>/queue/stats?dataset_id=<id>`
+  and answers null when the server leaves `label_counts` out (BAIGLE #224).
+
 ### Fixed
 
+- **The labelling guide counts labels in one request** (BAIGLE #224).
+  With `getAnnotationLabelCounts`, it reads the counts once on load and once
+  after each saved label, instead of once per label, and a Dataset that names
+  fewer than two labels finds its labels in use without paging every labelled
+  item. Without it, or on a server that can't count this way, the guide counts
+  as before. When a refresh fails, the last counts stay, with "Counts may be
+  out of date. They refresh after your next label." until the next one works.
+- **Too many requests reads as plain words** (BAIGLE #224). The self-hosted
+  adapter turns a 429 without a reason from the server into "Too many requests
+  just now. Wait a minute and try again.", or "Try again in N minutes." from
+  `Retry-After`, with `status` and `retryAfter` on the error. Review labels
+  shows it, and shows "Couldn't load the labels. Try again." instead of a bare
+  `Request failed:` for other failures.
 - **Do the rest holds steady around the AI's labels** (BAIGLE #213). A
   student arriving from Try it who presses Skip on the item its suggestion
   waits for still chooses the items and sees the cost, instead of being

@@ -51,6 +51,15 @@ async function loadCheck() {
   opened.value = nextOpened
 }
 
+/** Why the labels didn't load, in words a student can act on. The adapter's
+ * own message when it has one (a 429 says how long to wait), never a bare
+ * "Request failed: <code>". */
+function loadFailure(err: unknown): string {
+  const message = err instanceof Error ? err.message.trim() : ''
+  if (!message || message.startsWith('Request failed')) return "Couldn't load the labels. Try again."
+  return message
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -76,7 +85,7 @@ async function load() {
     task.value = next
     opened.value = nextOpened
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to load labels'
+    error.value = loadFailure(err)
   } finally {
     loading.value = false
   }

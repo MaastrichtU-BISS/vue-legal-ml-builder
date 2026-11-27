@@ -54,6 +54,8 @@ export function createTestAdapter(overrides: Partial<MLAdapter> = {}): MLAdapter
       hint: null,
     })),
     saveAnnotationAssignment: vi.fn().mockResolvedValue({}),
+    // An older server's answer: no counts in one read, so callers count per label.
+    getAnnotationLabelCounts: vi.fn().mockResolvedValue(null),
 
     ...overrides,
   }

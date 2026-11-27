@@ -49,11 +49,28 @@ function buildHeaders(getAuthToken?: () => string | null | undefined, extra: Hea
   return headers
 }
 
+/** Seconds from a Retry-After header given in seconds; undefined otherwise. */
+function retryAfterSeconds(res: Response): number | undefined {
+  const value = res.headers?.get?.('Retry-After')?.trim()
+  if (!value || !/^\d+$/.test(value)) return undefined
+  return Number(value)
+}
+
+/** A 429 the server didn't explain, in plain words. */
+function tooManyRequestsMessage(retryAfter?: number): string {
+  if (retryAfter === undefined) return 'Too many requests just now. Wait a minute and try again.'
+  const minutes = Math.max(1, Math.ceil(retryAfter / 60))
+  return `Too many requests just now. Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`
+}
+
 async function parseOrThrow(res: Response) {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const error: RefusalError & LlmRefusalError & SummarizationError = new Error(data.error || `Request failed: ${res.status} ${res.statusText}`)
+    const retryAfter = res.status === 429 ? retryAfterSeconds(res) : undefined
+    const fallback = res.status === 429 ? tooManyRequestsMessage(retryAfter) : `Request failed: ${res.status} ${res.statusText}`
+    const error: RefusalError & LlmRefusalError & SummarizationError = new Error(data.error || fallback)
     error.status = res.status
+    if (retryAfter !== undefined) error.retryAfter = retryAfter
     if (typeof data.field === 'string') error.field = data.field
     if (typeof data.code === 'string') error.code = data.code
     if (typeof data.destination === 'string') error.destination = data.destination
@@ -269,6 +286,12 @@ export function createSelfHostedAdapter(opts: SelfHostedAdapterOptions): MLAdapt
       if (filter.offset !== undefined) params.set('offset', String(filter.offset))
       const data = await get(`/annotation/projects/${projectId}/tasks?${params}`)
       return { tasks: data.tasks, total: data.total ?? data.tasks.length }
+    },
+    async getAnnotationLabelCounts(projectId: Id, datasetId: Id) {
+      const params = new URLSearchParams({ dataset_id: String(datasetId) })
+      const data = await get(`/annotation/projects/${projectId}/queue/stats?${params}`)
+      const counts = data?.stats?.label_counts
+      return counts && typeof counts === 'object' ? (counts as Record<string, number>) : null
     },
 
     // Active learning

@@ -2250,3 +2250,100 @@ describe('Try it follow-ups (BAIGLE #211)', () => {
     wrapper.unmount()
   })
 })
+
+describe('counting labels in one read (BAIGLE #224)', () => {
+  const STALE = 'Counts may be out of date. They refresh after your next label.'
+
+  function guideWith(labels: string[], overrides: Partial<MLAdapter>) {
+    const adapter = createTestAdapter({ pageAnnotationTasks: vi.fn().mockResolvedValue({ tasks: [], total: 0 }), ...llmMethods(), ...overrides })
+    const wrapper = mount(LabellingGuide, {
+      props: {
+        adapter, projectId: 'p1', datasetId: 'ds-1', labels, inUse: [],
+        stats: { total: 40, annotated: 3, percentage: 7 }, statsLoading: false, labelsVersion: 0,
+      },
+      attachTo: document.body,
+    })
+    return { adapter, wrapper }
+  }
+
+  async function save(wrapper: ReturnType<typeof guideWith>['wrapper'], times: number) {
+    for (let i = 1; i <= times; i++) {
+      await wrapper.setProps({ labelsVersion: (wrapper.props('labelsVersion') as number) + 1 })
+      await flushPromises()
+    }
+  }
+
+  it('reads every label’s count once on load and once per save, with no count per label', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValue({ Civil: 2, Criminal: 1 })
+    const { adapter, wrapper } = guideWith(['Civil', 'Criminal', 'Tort'], { getAnnotationLabelCounts })
+    await flushPromises()
+    await save(wrapper, 4)
+
+    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(1 + 4)
+    expect(getAnnotationLabelCounts).toHaveBeenCalledWith('p1', 'ds-1')
+    expect(adapter.pageAnnotationTasks).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('counts a label with none as 0', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValue({ Civil: 3 })
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    // Show it how: Civil has its three, Criminal none yet.
+    expect(wrapper.text()).toContain('Criminal 0 of 3')
+    expect(wrapper.text()).toContain('3 of 10 examples')
+    wrapper.unmount()
+  })
+
+  it('counts per label as before when the server can’t count them in one read', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValue(null)
+    const pageAnnotationTasks = vi.fn(async (_p: string, f: { label?: string }) => ({ tasks: [], total: f.label === 'Civil' ? 3 : 1 }))
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts, pageAnnotationTasks })
+    await flushPromises()
+    await save(wrapper, 1)
+
+    const perLabel = pageAnnotationTasks.mock.calls.filter(([, f]) => (f as { label?: string }).label !== undefined)
+    expect(perLabel).toHaveLength(2 * 2)
+    expect(wrapper.text()).toContain('4 of 10 examples')
+    wrapper.unmount()
+  })
+
+  it('finds the labels in use in one read on a Dataset that names fewer than two, and refreshes them after each save', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValue({ Civil: 2, Tort: 1, Empty: 0 })
+    const { adapter, wrapper } = guideWith([], { getAnnotationLabelCounts })
+    await flushPromises()
+
+    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(1)
+    expect(adapter.pageAnnotationTasks).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Tort')
+    expect(wrapper.text()).not.toContain('Empty')
+
+    await save(wrapper, 2)
+    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(3)
+    expect(adapter.pageAnnotationTasks).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('marks the counts as out of date when a refresh fails, until the next one works', async () => {
+    const getAnnotationLabelCounts = vi
+      .fn()
+      .mockResolvedValueOnce({ Civil: 1, Criminal: 1 })
+      .mockRejectedValueOnce(Object.assign(new Error('Too many requests just now. Wait a minute and try again.'), { status: 429 }))
+      .mockResolvedValue({ Civil: 2, Criminal: 1 })
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain(STALE)
+
+    await save(wrapper, 1)
+    // The last counts stay, marked, and the note is announced in the guide's one live region.
+    expect(wrapper.text()).toContain('2 of 10 examples')
+    expect(wrapper.find('.vmlb-guide-stale').text()).toBe(STALE)
+    expect(wrapper.findAll('[aria-live]')).toHaveLength(1)
+    expect(wrapper.find('[aria-live="polite"]').text()).toContain(STALE)
+
+    await save(wrapper, 1)
+    expect(wrapper.text()).not.toContain(STALE)
+    expect(wrapper.text()).toContain('3 of 10 examples')
+    wrapper.unmount()
+  })
+})

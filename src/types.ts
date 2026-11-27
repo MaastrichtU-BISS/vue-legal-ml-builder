@@ -669,6 +669,10 @@ export interface ExplanationResult {
  * adapter need not set `field`: the refusal is then shown without marking one. */
 export interface RefusalError extends Error {
   field?: string
+  /** The HTTP status, when the server answered with an error. */
+  status?: number
+  /** With a 429, how long the server asks to wait, in seconds, when it says. */
+  retryAfter?: number
 }
 
 export interface MLAdapter {
@@ -728,6 +732,10 @@ export interface MLAdapter {
   /** Tasks in row order a page at a time, with the total matching: the review
    * of existing labels. Without it, there is no Review labels mode. */
   pageAnnotationTasks?(projectId: Id, filter: AnnotationTaskPageFilter): Promise<{ tasks: AnnotationTask[]; total: number }>
+  /** Labelled items per label in one read: the Dataset's annotated items not
+   * held back, with a label. A label with none is absent. Null when the server
+   * can't count them this way (an older one), so the caller counts per label. */
+  getAnnotationLabelCounts?(projectId: Id, datasetId: Id): Promise<Record<string, number> | null>
 
   // Active learning. Optional: without these the workspace is plain annotation.
   getActiveLearningSettings?(): Promise<ActiveLearningSettings>

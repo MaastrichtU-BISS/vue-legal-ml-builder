@@ -459,3 +459,62 @@ describe('createSelfHostedAdapter summarization methods', () => {
     expect(calls.map((c) => c.token)).toEqual(['Bearer stale', 'Bearer fresh'])
   })
 })
+
+describe('counting labels in one read (BAIGLE #224)', () => {
+  it('reads the label counts from the queue stats', async () => {
+    const calls = stubFetch(() =>
+      reply(200, { success: true, stats: { total: 9, pending: 4, annotated: 5, skipped: 0, percentage_complete: 55, label_counts: { Civil: 3, Tort: 2 } } }),
+    )
+    const counts = await createSelfHostedAdapter({ apiUrl: '/api' }).getAnnotationLabelCounts!('p1', 'd 1')
+    expect(calls[0].url).toBe('/api/annotation/projects/p1/queue/stats?dataset_id=d+1')
+    expect(counts).toEqual({ Civil: 3, Tort: 2 })
+  })
+
+  it('answers null when an older server leaves the counts out', async () => {
+    stubFetch(() => reply(200, { success: true, stats: { total: 9, pending: 4, annotated: 5, skipped: 0, percentage_complete: 55 } }))
+    await expect(createSelfHostedAdapter({ apiUrl: '/api' }).getAnnotationLabelCounts!('p1', 'd1')).resolves.toBeNull()
+  })
+})
+
+describe('too many requests (BAIGLE #224)', () => {
+  const failure = async () => {
+    try {
+      await createSelfHostedAdapter({ apiUrl: '/api' }).listDatasets()
+    } catch (err) {
+      return err as Error & { status?: number; retryAfter?: number }
+    }
+    throw new Error('expected a failure')
+  }
+
+  it('says to wait a minute when the server gives no reason and no wait', async () => {
+    stubFetch(() => new Response('Too Many Requests', { status: 429, statusText: 'TOO MANY REQUESTS' }))
+    const err = await failure()
+    expect(err.message).toBe('Too many requests just now. Wait a minute and try again.')
+    expect(err.status).toBe(429)
+    expect(err.retryAfter).toBeUndefined()
+  })
+
+  it('says how many minutes to wait from Retry-After, rounded up', async () => {
+    stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': '125' } }))
+    const err = await failure()
+    expect(err.message).toBe('Too many requests just now. Try again in 3 minutes.')
+    expect(err.retryAfter).toBe(125)
+  })
+
+  it('says 1 minute for a short wait', async () => {
+    stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': '20' } }))
+    expect((await failure()).message).toBe('Too many requests just now. Try again in 1 minute.')
+  })
+
+  it('keeps the server’s own reason', async () => {
+    stubFetch(() => new Response(JSON.stringify({ error: 'Slow down a little.' }), { status: 429, headers: { 'Retry-After': '60' } }))
+    const err = await failure()
+    expect(err.message).toBe('Slow down a little.')
+    expect(err.retryAfter).toBe(60)
+  })
+
+  it('leaves other failures as they were', async () => {
+    stubFetch(() => new Response('', { status: 500, statusText: 'Internal Server Error' }))
+    expect((await failure()).message).toBe('Request failed: 500 Internal Server Error')
+  })
+})

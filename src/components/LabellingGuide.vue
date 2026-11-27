@@ -245,11 +245,25 @@ watch(showing, (value) => {
 
 const PAGE = 500
 
+/** The server counted every label in one read last time: counts can then be
+ * refreshed after each save, whatever the number of labels. */
+let oneRead = false
+/** The labels on the Dataset's labelled items with how many each, in one read;
+ * null when the adapter or the server can't count them that way. */
+async function countsInOneRead(): Promise<Record<string, number> | null> {
+  if (!props.adapter.getAnnotationLabelCounts) return null
+  const counts = await props.adapter.getAnnotationLabelCounts(props.projectId, props.datasetId)
+  oneRead = counts !== null
+  return counts
+}
+
 /** The labels on the Dataset's labelled items, with how many each: what step 1
  * locks when the Dataset names fewer than two labels (typed or file labels).
  * Pages through the labelled items, the one list that covers every source;
  * without it, the Model-led loop's counts while it runs. */
 async function findUsedLabels(): Promise<Record<string, number> | null> {
+  const counted = await countsInOneRead()
+  if (counted) return Object.fromEntries(Object.entries(counted).filter(([, n]) => n > 0))
   if (props.adapter.pageAnnotationTasks) {
     const counts: Record<string, number> = {}
     // Advance by what came back: an adapter may return fewer rows than asked.
@@ -273,9 +287,12 @@ async function findUsedLabels(): Promise<Record<string, number> | null> {
   return null
 }
 
-/** Confirmed labels per label, one count per label from the server. */
+/** Confirmed labels per label: one read when the server counts them all,
+ * otherwise one count per label. */
 async function loadCounts(): Promise<Record<string, number> | null> {
   if (props.labels.length < 2) return findUsedLabels()
+  const counted = await countsInOneRead()
+  if (counted) return Object.fromEntries(props.labels.map((label) => [label, counted[label] ?? 0]))
   if (props.adapter.pageAnnotationTasks) {
     const totals = await Promise.all(
       props.labels.map((label) =>
@@ -309,6 +326,7 @@ async function load() {
     ;[running] = await Promise.all([announcedLoad ? false : loopRunning(), llm.refresh(props.datasetId)])
     if (llm.error.value) throw new Error(llm.error.value)
     perLabel.value = await loadCounts()
+    countsStale.value = false
     if (restCandidate.value) await loadRest()
     await resumeStoredJob()
     loadState.value = 'ready'
@@ -327,21 +345,27 @@ async function load() {
 }
 
 let countsAsked = 0
+/** The last refresh of the counts failed: they are shown, marked out of date. */
+const countsStale = ref(false)
 async function refreshCounts() {
   if (loadState.value !== 'ready') return
-  // With fewer than two named labels, the used labels come from paging every
-  // labelled item: done once on load, not after each saved item (the workspace
-  // already knows the label just saved).
-  if (props.labels.length < 2) return
+  // With fewer than two named labels and no count in one read, the used labels
+  // come from paging every labelled item: done once on load, not after each
+  // saved item (the workspace already knows the label just saved).
+  if (props.labels.length < 2 && !oneRead) return
   const asked = ++countsAsked
   try {
     const counts = await loadCounts()
     // An older reply arriving last must not replace a newer one.
-    if (asked === countsAsked) perLabel.value = counts
+    if (asked !== countsAsked) return
+    perLabel.value = counts
+    countsStale.value = false
   } catch {
     // The step is worked out from the last counts until the next refresh.
+    if (asked === countsAsked) countsStale.value = true
   }
 }
+const STALE_NOTE = 'Counts may be out of date. They refresh after your next label.'
 
 function clearPending() {
   pendingDescriptions.value = null
@@ -483,6 +507,10 @@ const trying = computed(() => showing.value === 'ready' && step.value === 'try' 
 
 /** What the guide's live region says: Show it how's examples, or Try it's running count. */
 const liveCount = computed(() => {
+  const line = liveLine.value
+  return countsStale.value && showing.value === 'ready' ? [line, STALE_NOTE].filter(Boolean).join(' ') : line
+})
+const liveLine = computed(() => {
   if (showing.value !== 'ready') return ''
   if (step.value === 'show') return `${targets.value.total} of ${SHOW_TOTAL} examples labelled.`
   if (trying.value) return agreementLine(check.value)
@@ -968,6 +996,9 @@ watch([stepView, showing], async ([next, state]) => {
 
         <hr class="vmlb-guide-rule" />
 
+        <!-- Announced through the guide's live region above. -->
+        <p v-if="countsStale" class="vmlb-guide-stale">{{ STALE_NOTE }}</p>
+
         <div v-if="sentencesError && pendingDescriptions" class="vmlb-guide-sentences-error">
           <p role="alert"><Icon name="alert" /> Your labels are saved, but their sentences aren't saved yet: {{ sentencesError }}</p>
           <button type="button" class="vmlb-btn-secondary vmlb-guide-target" :disabled="syncBusy" :aria-busy="syncBusy" @click="syncDescriptions">{{ syncBusy ? 'Trying again…' : 'Try again' }}</button>
@@ -1124,6 +1155,7 @@ watch([stepView, showing], async ([next, state]) => {
 .vmlb-guide-step-title:focus-visible { outline: 2px solid var(--vmlb-accent); outline-offset: 2px; }
 .vmlb-guide-time { margin: var(--vmlb-space-2xs) 0 var(--vmlb-space-sm); color: var(--vmlb-text-muted); font-size: var(--vmlb-font-size-sm); }
 .vmlb-guide-text { margin: 0; }
+.vmlb-guide-stale { margin: 0 0 var(--vmlb-space-sm); color: var(--vmlb-text-muted); font-size: var(--vmlb-font-size-sm); }
 .vmlb-guide-sentences-error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--vmlb-space-sm); margin-bottom: var(--vmlb-space-md); }
 .vmlb-guide-sentences-error p { display: flex; align-items: center; gap: var(--vmlb-space-xs); margin: 0; color: var(--vmlb-error); }
 
