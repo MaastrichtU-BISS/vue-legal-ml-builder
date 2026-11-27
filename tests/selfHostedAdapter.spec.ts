@@ -474,6 +474,11 @@ describe('counting labels in one read (BAIGLE #224)', () => {
     stubFetch(() => reply(200, { success: true, stats: { total: 9, pending: 4, annotated: 5, skipped: 0, percentage_complete: 55 } }))
     await expect(createSelfHostedAdapter({ apiUrl: '/api' }).getAnnotationLabelCounts!('p1', 'd1')).resolves.toBeNull()
   })
+
+  it('answers null when the counts come as a list, not by label', async () => {
+    stubFetch(() => reply(200, { success: true, stats: { total: 9, label_counts: [3, 2] } }))
+    await expect(createSelfHostedAdapter({ apiUrl: '/api' }).getAnnotationLabelCounts!('p1', 'd1')).resolves.toBeNull()
+  })
 })
 
 describe('too many requests (BAIGLE #224)', () => {
@@ -511,6 +516,25 @@ describe('too many requests (BAIGLE #224)', () => {
     const err = await failure()
     expect(err.message).toBe('Slow down a little.')
     expect(err.retryAfter).toBe(60)
+  })
+
+  it('takes the wait from the body’s retry_after when there is no Retry-After', async () => {
+    stubFetch(() => new Response(JSON.stringify({ code: 'rate_limited', retry_after: 150 }), { status: 429 }))
+    const err = await failure()
+    expect(err.message).toBe('Too many requests just now. Try again in 3 minutes.')
+    expect(err.retryAfter).toBe(150)
+  })
+
+  it('takes the body’s retry_after when Retry-After can’t be read', async () => {
+    stubFetch(() => new Response(JSON.stringify({ retry_after: 30 }), { status: 429, headers: { 'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT' } }))
+    expect((await failure()).retryAfter).toBe(30)
+  })
+
+  it.each([['a string', '60'], ['a negative number', -5], ['null', null]])('ignores a retry_after that is %s', async (_, retryAfter) => {
+    stubFetch(() => new Response(JSON.stringify({ retry_after: retryAfter }), { status: 429 }))
+    const err = await failure()
+    expect(err.retryAfter).toBeUndefined()
+    expect(err.message).toBe('Too many requests just now. Wait a minute and try again.')
   })
 
   it('leaves other failures as they were', async () => {

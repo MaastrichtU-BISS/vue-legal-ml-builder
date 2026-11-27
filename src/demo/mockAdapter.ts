@@ -353,7 +353,8 @@ export function createMockAdapter(): MLAdapter {
     },
     // As legal-ml-core's queue stats: annotated items not held back, by label.
     async getAnnotationLabelCounts(_projectId, datasetId) {
-      const counts: Record<string, number> = {}
+      // No prototype: a label named "constructor" starts at 0, not a function.
+      const counts: Record<string, number> = Object.create(null)
       for (const t of tasksOf(datasetId)) {
         const name = t.status === 'annotated' && !t.is_holdout ? String(t.annotation_label ?? '').trim() : ''
         if (name) counts[name] = (counts[name] ?? 0) + 1

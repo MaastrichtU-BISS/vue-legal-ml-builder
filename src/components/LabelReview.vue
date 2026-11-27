@@ -225,7 +225,7 @@ const labelset = computed(() => kitLabelset([...new Set([...(opened.value?.label
       Change a label and Save, or move on with Next. Only what you change is saved, as your label.
     </p>
 
-    <div v-if="error" class="vmlb-alert-error">{{ error }}</div>
+    <div v-if="error" class="vmlb-alert-error" role="alert">{{ error }}</div>
     <p v-else-if="!loading && !task && checking" class="vmlb-muted">The AI has no labels waiting to check.</p>
     <p v-else-if="!loading && !task" class="vmlb-muted">No labelled items{{ filter ? ` with ${filter}` : '' }}.</p>
 

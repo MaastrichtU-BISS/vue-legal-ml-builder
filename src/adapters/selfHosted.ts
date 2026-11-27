@@ -49,11 +49,13 @@ function buildHeaders(getAuthToken?: () => string | null | undefined, extra: Hea
   return headers
 }
 
-/** Seconds from a Retry-After header given in seconds; undefined otherwise. */
-function retryAfterSeconds(res: Response): number | undefined {
+/** Seconds to wait: from a Retry-After header given in seconds, else from the
+ * body's numeric `retry_after`; undefined when neither is readable. */
+function retryAfterSeconds(res: Response, data: { retry_after?: unknown }): number | undefined {
   const value = res.headers?.get?.('Retry-After')?.trim()
-  if (!value || !/^\d+$/.test(value)) return undefined
-  return Number(value)
+  if (value && /^\d+$/.test(value)) return Number(value)
+  const fromBody = data?.retry_after
+  return typeof fromBody === 'number' && Number.isFinite(fromBody) && fromBody >= 0 ? fromBody : undefined
 }
 
 /** A 429 the server didn't explain, in plain words. */
@@ -66,7 +68,7 @@ function tooManyRequestsMessage(retryAfter?: number): string {
 async function parseOrThrow(res: Response) {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const retryAfter = res.status === 429 ? retryAfterSeconds(res) : undefined
+    const retryAfter = res.status === 429 ? retryAfterSeconds(res, data) : undefined
     const fallback = res.status === 429 ? tooManyRequestsMessage(retryAfter) : `Request failed: ${res.status} ${res.statusText}`
     const error: RefusalError & LlmRefusalError & SummarizationError = new Error(data.error || fallback)
     error.status = res.status
@@ -291,7 +293,7 @@ export function createSelfHostedAdapter(opts: SelfHostedAdapterOptions): MLAdapt
       const params = new URLSearchParams({ dataset_id: String(datasetId) })
       const data = await get(`/annotation/projects/${projectId}/queue/stats?${params}`)
       const counts = data?.stats?.label_counts
-      return counts && typeof counts === 'object' ? (counts as Record<string, number>) : null
+      return counts && typeof counts === 'object' && !Array.isArray(counts) ? (counts as Record<string, number>) : null
     },
 
     // Active learning

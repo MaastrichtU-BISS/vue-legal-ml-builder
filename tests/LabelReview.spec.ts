@@ -244,6 +244,8 @@ describe('when the labels can’t be read (BAIGLE #224)', () => {
     )
     expect(wrapper.text()).toContain('Too many requests just now. Try again in 2 minutes.')
     expect(wrapper.text()).not.toContain('Request failed')
+    // Announced, as the guide's alerts are.
+    expect(wrapper.find('.vmlb-alert-error').attributes('role')).toBe('alert')
     wrapper.unmount()
   })
 

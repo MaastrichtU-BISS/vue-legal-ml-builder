@@ -2331,7 +2331,7 @@ describe('counting labels in one read (BAIGLE #224)', () => {
     const getAnnotationLabelCounts = vi
       .fn()
       .mockResolvedValueOnce({ Civil: 1, Criminal: 1 })
-      .mockRejectedValueOnce(Object.assign(new Error('Too many requests just now. Wait a minute and try again.'), { status: 429 }))
+      .mockRejectedValueOnce(Object.assign(new Error('Request failed: 500 Internal Server Error'), { status: 500 }))
       .mockResolvedValue({ Civil: 2, Criminal: 1 })
     const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
     await flushPromises()
@@ -2347,6 +2347,118 @@ describe('counting labels in one read (BAIGLE #224)', () => {
     await save(wrapper, 1)
     expect(wrapper.text()).not.toContain(STALE)
     expect(wrapper.text()).toContain('3 of 10 examples')
+    wrapper.unmount()
+  })
+
+  const tooMany = () => Object.assign(new Error('Too many requests just now. Try again in 3 minutes.'), { status: 429, retryAfter: 150 })
+  const deferred = <T,>() => {
+    let resolve!: (value: T) => void
+    let reject!: (err: unknown) => void
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+    return { promise, resolve, reject }
+  }
+
+  it('counts a label named like an object property, with none, as 0', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValue({ Civil: 3 })
+    const { wrapper } = guideWith(['Civil', 'constructor'], { getAnnotationLabelCounts })
+    await flushPromises()
+    expect(wrapper.text()).toContain('constructor 0 of 3')
+    expect(wrapper.text()).toContain('3 of 10 examples')
+    expect(wrapper.text()).not.toContain('function')
+    wrapper.unmount()
+  })
+
+  it('keeps the wait in the error when loading hits too many requests', async () => {
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts: vi.fn().mockRejectedValue(tooMany()) })
+    await flushPromises()
+    expect(wrapper.find('.vmlb-guide-failed [role="alert"]').text()).toBe(
+      "Couldn't load your labelling progress. Too many requests just now. Try again in 3 minutes.",
+    )
+    wrapper.unmount()
+  })
+
+  it('keeps the plain sentence when loading fails any other way', async () => {
+    const { wrapper } = guideWith(['Civil', 'Criminal'], {
+      getAnnotationLabelCounts: vi.fn().mockRejectedValue(Object.assign(new Error('Request failed: 500 Internal Server Error'), { status: 500 })),
+    })
+    await flushPromises()
+    expect(wrapper.find('.vmlb-guide-failed [role="alert"]').text()).toBe("Couldn't load your labelling progress.")
+    wrapper.unmount()
+  })
+
+  it('says how long to wait in the note when a refresh hits too many requests', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValueOnce({ Civil: 1, Criminal: 1 }).mockRejectedValueOnce(tooMany())
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    await save(wrapper, 1)
+    const note = 'Counts may be out of date. Too many requests just now. Try again in 3 minutes.'
+    expect(wrapper.find('.vmlb-guide-stale').text()).toBe(note)
+    expect(wrapper.find('[aria-live="polite"]').text()).toBe(`2 of 10 examples labelled. ${note}`)
+    wrapper.unmount()
+  })
+
+  it('reads the counts again when a label is saved while they first load', async () => {
+    const first = deferred<Record<string, number>>()
+    const getAnnotationLabelCounts = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValue({ Civil: 2, Criminal: 2 })
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(1)
+
+    await save(wrapper, 1)
+    first.resolve({ Civil: 1, Criminal: 1 })
+    await flushPromises()
+
+    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('4 of 10 examples')
+    wrapper.unmount()
+  })
+
+  it('lets no older refresh land once the Dataset names fewer than two labels', async () => {
+    const older = deferred<Record<string, number>>()
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValueOnce({ Civil: 1, Criminal: 1 }).mockReturnValueOnce(older.promise)
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    await wrapper.setProps({ labelsVersion: 1 })
+    await flushPromises()
+    expect(getAnnotationLabelCounts).toHaveBeenCalledTimes(2)
+
+    // The newer refresh: one label left, nothing to read.
+    await wrapper.setProps({ labels: ['Civil'] })
+    await flushPromises()
+    older.reject(new Error('Request failed: 500 Internal Server Error'))
+    await flushPromises()
+
+    expect(wrapper.find('.vmlb-guide-stale').exists()).toBe(false)
+    expect(wrapper.find('[aria-live="polite"]').text()).not.toContain('out of date')
+    wrapper.unmount()
+  })
+
+  it('marks out-of-date counts in the folded header on phones', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValueOnce({ Civil: 1, Criminal: 1 }).mockRejectedValueOnce(tooMany())
+    const { wrapper } = guideWith(['Civil', 'Criminal'], { getAnnotationLabelCounts })
+    await flushPromises()
+    expect(wrapper.find('.vmlb-guide-folded').text()).not.toContain('may be out of date')
+
+    await save(wrapper, 1)
+    expect(wrapper.find('.vmlb-guide-folded').text()).toContain('2 of 10 examples · may be out of date')
+    expect(wrapper.findAll('[aria-live]')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('announces the note with the count line only, not with Try it’s agreement', async () => {
+    const getAnnotationLabelCounts = vi.fn().mockResolvedValueOnce({ Civil: 10, Criminal: 10 }).mockRejectedValueOnce(tooMany())
+    const { wrapper } = guideWith(['Civil', 'Criminal'], {
+      getAnnotationLabelCounts,
+      getLlmAgreement: vi.fn().mockResolvedValue(llmAgreement({ checked: 20, agreed: 17, rate: 0.85 })),
+    })
+    await flushPromises()
+    await save(wrapper, 1)
+
+    expect(wrapper.find('.vmlb-guide-stale').exists()).toBe(true)
+    const live = wrapper.find('[aria-live="polite"]').text()
+    expect(live).toContain('17 of 20')
+    expect(live).not.toContain('out of date')
+    expect(wrapper.findAll('[aria-live]')).toHaveLength(1)
     wrapper.unmount()
   })
 })

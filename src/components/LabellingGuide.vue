@@ -33,7 +33,7 @@ import {
 import { count } from '../annotation/annotationState'
 import { newestFirst, queueOrder, waitingSuggestion } from '../annotation/llmAssist'
 import { useLlmAssist } from '../composables/useLlmAssist'
-import type { AnnotationStats, AnnotationTask, Dataset, Id, LlmKeyInput, LlmSuggestion, MLAdapter } from '../types'
+import type { AnnotationStats, AnnotationTask, Dataset, Id, LlmKeyInput, LlmSuggestion, MLAdapter, RefusalError } from '../types'
 import GuideConnectStep from './GuideConnectStep.vue'
 import GuideImproveStep from './GuideImproveStep.vue'
 import GuideLabelsStep from './GuideLabelsStep.vue'
@@ -285,7 +285,8 @@ async function findUsedLabels(): Promise<Record<string, number> | null> {
 async function loadCounts(): Promise<Record<string, number> | null> {
   if (props.labels.length < 2) return findUsedLabels()
   const counted = await countsInOneRead()
-  if (counted) return Object.fromEntries(props.labels.map((label) => [label, counted[label] ?? 0]))
+  // Own keys only: a label named "constructor" with no items counts 0.
+  if (counted) return Object.fromEntries(props.labels.map((label) => [label, Object.hasOwn(counted, label) ? counted[label] : 0]))
   if (props.adapter.pageAnnotationTasks) {
     const totals = await Promise.all(
       props.labels.map((label) =>
@@ -312,20 +313,36 @@ async function loopRunning(): Promise<boolean> {
   }
 }
 
+/** A 429's own words (how long to wait), or null for any other failure. */
+function tooManyRequests(err: unknown): string | null {
+  if (!(err instanceof Error) || (err as RefusalError).status !== 429) return null
+  return err.message.trim() || null
+}
+
+/** Why the last load failed, when the server said to wait: shown after the plain sentence. */
+const loadWait = ref('')
 async function load() {
   loadState.value = 'loading'
+  loadWait.value = ''
+  refreshWanted = false
   let running = false
   try {
     ;[running] = await Promise.all([announcedLoad ? false : loopRunning(), llm.refresh(props.datasetId)])
     if (llm.error.value) throw new Error(llm.error.value)
     perLabel.value = await loadCounts()
-    countsStale.value = false
+    staleNote.value = ''
     if (restCandidate.value) await loadRest()
     await resumeStoredJob()
     loadState.value = 'ready'
-  } catch {
+  } catch (err) {
+    loadWait.value = tooManyRequests(err) ?? ''
     loadState.value = 'error'
     return
+  }
+  // A label saved while the counts were loading: read them again.
+  if (refreshWanted) {
+    refreshWanted = false
+    void refreshCounts()
   }
   if (!announcedLoad) {
     announcedLoad = true
@@ -338,28 +355,42 @@ async function load() {
 }
 
 let countsAsked = 0
-/** The last refresh of the counts failed: they are shown, marked out of date. */
-const countsStale = ref(false)
+/** A refresh asked for while the guide was loading, run once it is ready. */
+let refreshWanted = false
+const STALE_NOTE = 'Counts may be out of date. They refresh after your next label.'
+/** Set when the last refresh of the counts failed: they are shown, marked out
+ * of date, with how long to wait after too many requests. */
+const staleNote = ref('')
 async function refreshCounts() {
+  if (loadState.value === 'loading') {
+    refreshWanted = true
+    return
+  }
   if (loadState.value !== 'ready') return
   // With fewer than two named labels, the used labels come from paging every
   // labelled item, held-out ones too, since a label on any item is in use: done
   // once on load, not after each saved item (the workspace already knows the
   // label just saved).
-  if (props.labels.length < 2) return
+  if (props.labels.length < 2) {
+    // An older refresh still in flight must not land after this.
+    countsAsked++
+    staleNote.value = ''
+    return
+  }
   const asked = ++countsAsked
   try {
     const counts = await loadCounts()
     // An older reply arriving last must not replace a newer one.
     if (asked !== countsAsked) return
     perLabel.value = counts
-    countsStale.value = false
-  } catch {
+    staleNote.value = ''
+  } catch (err) {
     // The step is worked out from the last counts until the next refresh.
-    if (asked === countsAsked) countsStale.value = true
+    if (asked !== countsAsked) return
+    const wait = tooManyRequests(err)
+    staleNote.value = wait ? `Counts may be out of date. ${wait}` : STALE_NOTE
   }
 }
-const STALE_NOTE = 'Counts may be out of date. They refresh after your next label.'
 
 function clearPending() {
   pendingDescriptions.value = null
@@ -502,7 +533,8 @@ const trying = computed(() => showing.value === 'ready' && step.value === 'try' 
 /** What the guide's live region says: Show it how's examples, or Try it's running count. */
 const liveCount = computed(() => {
   const line = liveLine.value
-  return countsStale.value && showing.value === 'ready' ? [line, STALE_NOTE].filter(Boolean).join(' ') : line
+  // The note goes with the count line only, not Try it's or Do the rest's.
+  return staleNote.value && showing.value === 'ready' && step.value === 'show' ? [line, staleNote.value].filter(Boolean).join(' ') : line
 })
 const liveLine = computed(() => {
   if (showing.value !== 'ready') return ''
@@ -923,7 +955,7 @@ watch([stepView, showing], async ([next, state]) => {
     <div v-if="showing === 'ready' && collapsible" class="vmlb-guide-folded">
       <div class="vmlb-guide-folded-line">
         <p v-if="step === 'try'">Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <span class="vmlb-num">Agreed {{ check?.agreed ?? 0 }} of {{ check?.checked ?? 0 }}</span></p>
-        <p v-else>Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <span class="vmlb-num">{{ targets.total }} of {{ SHOW_TOTAL }} examples</span></p>
+        <p v-else>Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <span class="vmlb-num">{{ targets.total }} of {{ SHOW_TOTAL }} examples</span><span v-if="staleNote" class="vmlb-guide-folded-stale"> · may be out of date</span></p>
         <button
           ref="detailsToggle"
           type="button"
@@ -958,7 +990,7 @@ watch([stepView, showing], async ([next, state]) => {
       </div>
 
       <div v-else-if="showing === 'error'" class="vmlb-guide-failed">
-        <p role="alert"><Icon name="alert" /> Couldn't load your labelling progress.</p>
+        <p role="alert"><Icon name="alert" /> Couldn't load your labelling progress.{{ loadWait ? ` ${loadWait}` : '' }}</p>
         <button type="button" class="vmlb-btn-secondary vmlb-guide-target" @click="load">Try again</button>
       </div>
 
@@ -991,7 +1023,7 @@ watch([stepView, showing], async ([next, state]) => {
         <hr class="vmlb-guide-rule" />
 
         <!-- Announced through the guide's live region above. -->
-        <p v-if="countsStale" class="vmlb-guide-stale">{{ STALE_NOTE }}</p>
+        <p v-if="staleNote" class="vmlb-guide-stale">{{ staleNote }}</p>
 
         <div v-if="sentencesError && pendingDescriptions" class="vmlb-guide-sentences-error">
           <p role="alert"><Icon name="alert" /> Your labels are saved, but their sentences aren't saved yet: {{ sentencesError }}</p>
@@ -1168,6 +1200,7 @@ watch([stepView, showing], async ([next, state]) => {
 .vmlb-guide-folded { display: none; }
 .vmlb-guide-folded-line { display: flex; align-items: center; justify-content: space-between; gap: var(--vmlb-space-sm); }
 .vmlb-guide-folded-line p { margin: 0; font-size: var(--vmlb-font-size-sm); }
+.vmlb-guide-folded-stale { color: var(--vmlb-text-muted); }
 .vmlb-guide-details {
   padding: 0 var(--vmlb-space-2xs); border: 0; background: none; color: var(--vmlb-accent-strong);
   font: inherit; font-size: var(--vmlb-font-size-sm); font-weight: 600;
