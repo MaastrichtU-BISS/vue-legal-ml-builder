@@ -1,7 +1,7 @@
 import { computed, onUnmounted, ref, type Ref } from 'vue'
 import { count } from '../annotation/annotationState'
 import { batchSummary, newestFirst } from '../annotation/llmAssist'
-import type { Id, LlmAgreement, LlmEstimate, LlmJob, LlmKeyInput, LlmPrompt, LlmRefusalError, LlmStatus, LlmSuggestion, LlmSuggestionBatch, MLAdapter } from '../types'
+import type { Id, LlmAgreement, LlmEstimate, LlmJob, LlmKeyInput, LlmPrompt, LlmRefusalError, LlmStatus, LlmSuggestion, LlmSuggestionBatch, MLAdapter, RefusalError } from '../types'
 import { createPollLoop, type PollLoop } from '../utils/polling'
 
 /** Refusals after which the status on screen is out of date. */
@@ -170,7 +170,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     } catch (err) {
       // A stale count is shown until the next refresh; the label itself was saved.
       // Too many requests says so, with the wait, until a refresh works.
-      const refusal = err as LlmRefusalError
+      const refusal = err as RefusalError
       progressWait.value = refusal?.status === 429 && err instanceof Error ? err.message.trim() : ''
     }
   }
