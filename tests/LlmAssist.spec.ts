@@ -803,7 +803,7 @@ describe('LLM assistance: labelling many items at once', () => {
   })
 
   it("shows the server's words when a Start is refused because a job is already running (BAIGLE #225 council)", async () => {
-    const words = 'A labelling job is already running for you. Wait for it to finish, or stop it first.'
+    const words = 'A labelling job is already running for you. Wait for it to finish, then start another.'
     const refused = Object.assign(new Error(words), { status: 409, code: 'job_running' })
     const { wrapper } = await mounted({
       estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate),
