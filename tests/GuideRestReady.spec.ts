@@ -279,6 +279,19 @@ describe("step 5, Do the rest: a free model's daily allowance (BAIGLE #225)", ()
     wrapper.unmount()
   })
 
+  it('says the one label a stopped job made is kept, in the singular (BAIGLE #225 council)', async () => {
+    localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
+    const { wrapper } = await mounted({
+      overrides: {
+        getLlmJob: vi.fn().mockResolvedValue({ status: 'provider_limited', total: 28, done: 1, created: 1, error: 'Used up.', daily: true }),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ tasks: 27 })),
+      },
+    })
+
+    expect(alerts(wrapper).join(' ')).toContain('Labelling stopped after 1 of 28. That 1 is kept.')
+    wrapper.unmount()
+  })
+
   it('offers the AI labels the stopped job kept, to accept or check, beside Carry on (BAIGLE #225 council)', async () => {
     localStorage.setItem('vmlb-guide-job:ds-1', 'job-1')
     const made = Array.from({ length: 20 }, (_, i) => aiLabel(i))

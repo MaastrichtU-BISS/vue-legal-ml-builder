@@ -125,7 +125,8 @@ const providerWait = computed(() => providerWaitLine(props.job))
 /** What a stopped job kept: nothing said when it made nothing. */
 const keptLine = computed(() => {
   const kept = props.job ? props.job.created ?? props.job.done : 0
-  return kept > 0 ? ` Those ${kept} are kept.` : ''
+  if (kept <= 0) return ''
+  return kept === 1 ? ' That 1 is kept.' : ` Those ${kept} are kept.`
 })
 const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
 </script>
