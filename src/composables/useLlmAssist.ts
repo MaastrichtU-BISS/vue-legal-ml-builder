@@ -116,7 +116,9 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
       errorRef.value = err instanceof Error ? err.message : fallback
       errorCode.value = refusal?.code ?? null
       errorMessage.value = errorRef.value
-      if (refusal?.code === 'budget_exhausted' && !status.value?.free_model) budgetExhausted.value = true
+      // The server never refuses a free model for the monthly limit, so a page
+      // that thinks the model is free has a stale status: it locks all the same.
+      if (refusal?.code === 'budget_exhausted') budgetExhausted.value = true
       if (STATUS_CODES.includes(refusal?.code ?? '')) await loadStatus(datasetId).catch(() => undefined)
     } finally {
       isBusy.value = false
@@ -301,7 +303,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
       return true
     }
     stopJob()
-    if (next.status === 'budget_exhausted' && !status.value?.free_model) budgetExhausted.value = true
+    if (next.status === 'budget_exhausted') budgetExhausted.value = true
     // What it made is read before it shows as finished: finished with nothing
     // waiting yet, Do the rest would offer the cost again for a moment.
     await loadStatus(datasetId).catch(() => undefined)

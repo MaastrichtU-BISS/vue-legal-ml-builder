@@ -453,8 +453,7 @@ describe('LLM assistance: the monthly limit', () => {
 
   it('keeps Suggest, Estimate and saving the prompt open for a free model on the shared key with no tokens left (BAIGLE #225 council)', async () => {
     const free = llmStatus({ remaining_tokens: 0, free_model: true })
-    const createLlmSuggestions = vi.fn().mockRejectedValue(refusal("You've reached the monthly limit.", 'budget_exhausted'))
-    const { wrapper } = await mounted({ getLlmStatus: vi.fn().mockResolvedValue(free), createLlmSuggestions })
+    const { wrapper } = await mounted({ getLlmStatus: vi.fn().mockResolvedValue(free) })
 
     expect(panel(wrapper).text()).not.toContain("You've used this month's limit on the shared key.")
     expect(panel(wrapper).text()).not.toContain('tokens left this month')
@@ -463,9 +462,17 @@ describe('LLM assistance: the monthly limit', () => {
     expect(button(wrapper, 'Save as a new version')?.attributes('disabled')).toBeUndefined()
     expect(wrapper.find('details.vmlb-llm-add-key').attributes('open')).toBeUndefined()
 
-    // A refusal for the monthly limit doesn't lock a free model out either.
+    wrapper.unmount()
+  })
+
+  it('locks on a monthly-limit refusal even when the status read earlier said the model is free: the status was stale (BAIGLE #225 council)', async () => {
+    const free = llmStatus({ remaining_tokens: 1000, free_model: true })
+    const createLlmSuggestions = vi.fn().mockRejectedValue(refusal("You've reached the monthly limit.", 'budget_exhausted'))
+    const { wrapper } = await mounted({ getLlmStatus: vi.fn().mockResolvedValue(free), createLlmSuggestions })
+
     await click(wrapper, 'Suggest labels for this batch')
-    expect(button(wrapper, 'Suggest labels for this batch')?.attributes('disabled')).toBeUndefined()
+    expect(button(wrapper, 'Suggest labels for this batch')?.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('details.vmlb-llm-add-key').attributes('open')).toBeDefined()
     wrapper.unmount()
   })
 

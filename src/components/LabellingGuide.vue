@@ -581,6 +581,10 @@ async function askForSuggestion() {
     outcome = 'failed'
     if (llm.errorCode.value === 'provider_rate_limited' && llm.suggestError.value) {
       providerLimits.value = { ...providerLimits.value, [key]: llm.suggestError.value.trim() }
+    } else if (key in providerLimits.value) {
+      // Failed for another reason: the provider's words no longer say why.
+      const { [key]: _stale, ...limits } = providerLimits.value
+      providerLimits.value = limits
     }
   }
   else if (!batch.suggestions.length && batch.invalid) outcome = 'invalid'
@@ -955,6 +959,9 @@ watch(
     const kept = Object.entries(outcomes.value).filter(([, outcome]) => outcome !== 'failed')
     if (kept.length === Object.keys(outcomes.value).length) return
     outcomes.value = Object.fromEntries(kept)
+    // Asked again, so the provider's words from the last refusal are dropped too.
+    const keptKeys = new Set(kept.map(([key]) => key))
+    providerLimits.value = Object.fromEntries(Object.entries(providerLimits.value).filter(([key]) => keptKeys.has(key)))
     void askForSuggestion()
   },
 )

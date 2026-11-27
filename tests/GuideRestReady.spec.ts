@@ -171,6 +171,22 @@ describe('step 5, Do the rest: the estimate', () => {
     wrapper.unmount()
   })
 
+  it('says nothing of a charge for a free model on the student\'s own key (BAIGLE #225 council)', async () => {
+    const own = llmStatus({ mode: 'byok', remaining_tokens: null, free_model: true, key: { base_url: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct:free' } })
+    const { wrapper } = await mounted({
+      overrides: {
+        getLlmStatus: vi.fn().mockResolvedValue(own),
+        estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ remaining_tokens: null, free_model: true, provider_daily_limit: null })),
+      },
+    })
+
+    await click(wrapper, 'Work out the cost')
+
+    expect(guide(wrapper).text()).toContain('About 42,000 tokens.')
+    expect(guide(wrapper).text()).not.toContain('charges you')
+    wrapper.unmount()
+  })
+
   it('does not start a job larger than what is left this month', async () => {
     const { wrapper } = await mounted({ overrides: { estimateLlmAnnotation: vi.fn().mockResolvedValue(estimate({ within_budget: false, remaining_tokens: 1000 })) } })
 

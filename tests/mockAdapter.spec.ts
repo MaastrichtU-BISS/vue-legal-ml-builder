@@ -201,6 +201,15 @@ describe('the demo LLM', () => {
     expect(job.error).toContain('50 requests a day')
   })
 
+  it("flags free models only when listing at OpenRouter's https address (BAIGLE #225 council)", async () => {
+    const at = async (base_url: string) => (await settle(adapter.listLlmModels!({ base_url, api_key: 'sk-demo' }))).models.filter((m) => m.free)
+    expect((await at('https://openrouter.ai/api/v1')).length).toBeGreaterThanOrEqual(2)
+    expect(await at('http://openrouter.ai/api/v1')).toEqual([])
+    expect(await at('https://api.mistral.ai/v1')).toEqual([])
+    await settle(adapter.saveLlmKey!({ base_url: 'https://api.mistral.ai/v1', model: 'mistral-small', api_key: 'sk-demo' }))
+    expect((await settle(adapter.listLlmModels!({ use_saved_key: true }))).models.filter((m) => m.free)).toEqual([])
+  })
+
   it("treats a :free id as free only at OpenRouter's address (BAIGLE #225 council)", async () => {
     await settle(adapter.saveLlmKey!({ base_url: 'https://api.mistral.ai/v1', model: 'mistral-small:free', api_key: 'sk-demo' }))
     expect(await settle(adapter.getLlmStatus!(ds))).toMatchObject({ mode: 'byok', free_model: false })

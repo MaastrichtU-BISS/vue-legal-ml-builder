@@ -279,8 +279,11 @@ export function createMockLlm(
       key = { base_url: input.base_url, model: input.model }
       return delay({ ...key })
     },
-    async listLlmModels() {
-      return delay({ models: DEMO_LLM_MODELS.map((m) => ({ ...m })) })
+    async listLlmModels(request) {
+      // Free only at OpenRouter's address, as the server flags it.
+      const baseUrl = 'use_saved_key' in request ? key?.base_url : request.base_url
+      const atOpenRouter = isOpenRouterUrl(baseUrl)
+      return delay({ models: DEMO_LLM_MODELS.map(({ free, ...m }) => (atOpenRouter && free ? { ...m, free } : { ...m })) })
     },
     async deleteLlmKey() {
       key = null

@@ -74,10 +74,13 @@ export function percent(share: number): string {
 export const FREE_MODEL_HINT =
   "Free models on OpenRouter allow about 20 requests a minute and 50 a day (1,000 a day once you've bought $10 of credit)."
 
-/** The base URL is OpenRouter's (by its host), whatever provider was picked. */
+/** The base URL is OpenRouter's (by its host, over https, with no user or
+ * password in it, as the server checks), whatever provider was picked. */
 export function isOpenRouterUrl(baseUrl: string | null | undefined): boolean {
   try {
-    return new URL((baseUrl ?? '').trim()).hostname.toLowerCase().replace(/\.$/, '') === 'openrouter.ai'
+    const url = new URL((baseUrl ?? '').trim())
+    return url.protocol === 'https:' && !url.username && !url.password
+      && url.hostname.toLowerCase().replace(/\.$/, '') === 'openrouter.ai'
   } catch {
     return false
   }

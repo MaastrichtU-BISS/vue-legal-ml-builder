@@ -58,8 +58,18 @@ tagged `vX.Y.Z`.
   with its reason.
 - **A free model on the shared key is never locked out** by the monthly token
   limit: it is metered but not capped, so a status with `free_model` clears
-  the out-of-tokens state, a `budget_exhausted` refusal doesn't set it, and the
-  guide and panel leave out "tokens left this month".
+  the out-of-tokens state and the guide and panel leave out "tokens left this
+  month". The server never sends `budget_exhausted` for a free model, so a
+  refusal or a job stopped with it still locks: the page's status was stale
+  (the shared model was switched to a paid one).
+- Do the rest leaves out "your AI provider charges you for these tokens" for a
+  free model on the student's own key.
+- Try it drops the provider's words once the item is asked again (access back)
+  or fails for another reason, so a later failure isn't blamed on the
+  provider's limit.
+- A `:free` id counts as free only at OpenRouter's https address with no user
+  or password in it, as the server checks; the demo flags free models only
+  when listing at that address.
 
 ## [0.17.1] - 2026-11-27
 

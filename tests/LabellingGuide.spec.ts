@@ -1565,6 +1565,50 @@ describe('step 4, Try it', () => {
     wrapper.unmount()
   })
 
+  it("drops the provider's words once access comes back, so a later failure says only that the AI didn't answer (BAIGLE #225 council)", async () => {
+    const words = 'This free model allows about 20 requests a minute on OpenRouter. Try again in 1 minute.'
+    const createLlmSuggestions = vi.fn()
+      .mockRejectedValueOnce(refusal(words, 'provider_rate_limited', { status: 429, retryAfter: 40, daily: false }))
+      .mockRejectedValueOnce(refusal('The shared allowance is used up', 'budget_exhausted'))
+      .mockRejectedValue(refusal('Provider unavailable', 'llm_failed'))
+    const getLlmStatus = vi.fn()
+      .mockResolvedValueOnce(llmStatus())
+      .mockResolvedValue(ownKey({ acknowledged: true, model: 'mistral-small' }))
+    // The guide alone, so the item on screen can change.
+    const adapter = createTestAdapter({
+      ...llmMethods({
+        createLlmSuggestions,
+        getLlmStatus,
+        pageAnnotationTasks: vi.fn(async (_p: string, filter: { label?: string }) => ({ tasks: [], total: filter.label ? 6 : 0 })),
+      }),
+    })
+    const wrapper = mount(LabellingGuide, {
+      props: {
+        adapter, projectId: 'p1', datasetId: 'ds-1', labels: ['Civil', 'Criminal'], inUse: [],
+        stats: { total: 40, annotated: 12, percentage: 30 }, statsLoading: false, labelsVersion: 0, currentTaskId: 't1',
+      },
+      attachTo: document.body,
+    })
+    await flushPromises()
+    expect(alerts(wrapper)).toContain(words)
+
+    // Another item: the shared allowance runs out, and the student adds their own key.
+    await wrapper.setProps({ currentTaskId: 't2' })
+    await flushPromises()
+    expect(currentStep(wrapper).text()).toContain('Connect AI')
+    await typeKey(wrapper, 'sk-own')
+    await submitKey(wrapper)
+    expect(currentStep(wrapper).text()).toContain('Try it')
+
+    // Back on the first item, asked again: it fails for another reason.
+    await wrapper.setProps({ currentTaskId: 't1' })
+    await flushPromises()
+    expect(createLlmSuggestions.mock.calls.length).toBeGreaterThanOrEqual(4)
+    expect(alerts(wrapper).join(' ')).not.toContain(words)
+    expect(alerts(wrapper)).toContain("The AI didn't answer. Label this one yourself, or try again.")
+    wrapper.unmount()
+  })
+
   it("says when the AI didn't answer, and tries again", async () => {
     const createLlmSuggestions = vi.fn()
       .mockRejectedValueOnce(refusal('Provider unavailable', 'llm_failed'))

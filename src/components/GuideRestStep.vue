@@ -155,7 +155,7 @@ const checkCount = computed(() => Math.min(CHECK_SAMPLE, props.aiLabels))
         <p class="vmlb-guide-text vmlb-num">
           About {{ tokens(estimate.estimated_tokens) }} tokens.<template v-if="estimate.remaining_tokens !== null && !estimate.free_model"> You have {{ tokens(estimate.remaining_tokens) }} left this month.</template>
         </p>
-        <p v-if="ownKey" class="vmlb-guide-text">This uses your own key, so your AI provider charges you for these tokens.</p>
+        <p v-if="ownKey && !estimate.free_model" class="vmlb-guide-text">This uses your own key, so your AI provider charges you for these tokens.</p>
         <p class="vmlb-guide-hint">The text of {{ count(estimate.tasks, 'item') }} is sent to {{ estimate.destination }}.</p>
         <p v-if="!estimate.within_budget" class="vmlb-guide-warning" role="alert">
           <Icon name="alert" /> <span>That's more than you have left this month. Choose fewer items, or add your own key.</span>
