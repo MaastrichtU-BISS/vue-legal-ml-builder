@@ -2390,6 +2390,24 @@ describe('counting labels in one read (BAIGLE #224)', () => {
     wrapper.unmount()
   })
 
+  it("says when the AI's progress couldn't be refreshed for too many requests, with the wait, until a refresh works", async () => {
+    const refused = Object.assign(new Error('Too many requests just now. Try again in 2 minutes.'), { status: 429, code: 'rate_limited' })
+    const getLlmAgreement = vi.fn().mockResolvedValueOnce(llmAgreement()).mockRejectedValueOnce(refused).mockResolvedValue(llmAgreement())
+    const { wrapper } = guideWith(['Civil', 'Criminal'], {
+      getAnnotationLabelCounts: vi.fn().mockResolvedValue({ Civil: 1, Criminal: 1 }),
+      getLlmAgreement,
+    })
+    await flushPromises()
+    expect(wrapper.find('.vmlb-guide-stale').exists()).toBe(false)
+
+    await save(wrapper, 1)
+    expect(wrapper.find('.vmlb-guide-stale').text()).toBe("The AI's progress may be out of date. Too many requests just now. Try again in 2 minutes.")
+
+    await save(wrapper, 1)
+    expect(wrapper.find('.vmlb-guide-stale').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('keeps the plain sentence when loading fails any other way', async () => {
     const { wrapper } = guideWith(['Civil', 'Criminal'], {
       getAnnotationLabelCounts: vi.fn().mockRejectedValue(Object.assign(new Error('Request failed: 500 Internal Server Error'), { status: 500 })),

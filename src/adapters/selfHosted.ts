@@ -54,7 +54,8 @@ function buildHeaders(getAuthToken?: () => string | null | undefined, extra: Hea
 function retryAfterSeconds(res: Response, data: { retry_after?: unknown }): number | undefined {
   const value = res.headers?.get?.('Retry-After')?.trim()
   if (value && /^\d+$/.test(value)) return Number(value)
-  const at = value ? Date.parse(value) : NaN
+  // An HTTP date names its day and month; a number that isn't whole seconds is no wait.
+  const at = value && /[A-Za-z]/.test(value) ? Date.parse(value) : NaN
   if (Number.isFinite(at)) return Math.max(0, Math.ceil((at - Date.now()) / 1000))
   const fromBody = data?.retry_after
   return typeof fromBody === 'number' && Number.isFinite(fromBody) && fromBody >= 0 ? fromBody : undefined
@@ -85,6 +86,8 @@ function throwRefusal(res: Response, data: Record<string, any>): never {
   if (retryAfter !== undefined) error.retryAfter = retryAfter
   if (typeof data.field === 'string') error.field = data.field
   if (typeof data.code === 'string') error.code = data.code
+  // A 429 from a proxy has no code: name it, so callers keyed on codes keep the wait.
+  else if (res.status === 429) error.code = 'rate_limited'
   if (typeof data.destination === 'string') error.destination = data.destination
   throw error
 }

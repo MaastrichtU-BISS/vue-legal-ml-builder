@@ -531,11 +531,19 @@ const tryView = computed<TryView>(() => {
 })
 const trying = computed(() => showing.value === 'ready' && step.value === 'try' && !improving.value)
 
+/** The AI's progress (what waits, the check) couldn't be refreshed: too many requests. */
+const progressNote = computed(() => (llm.progressWait.value ? `The AI's progress may be out of date. ${llm.progressWait.value}` : ''))
+/** What is shown as out of date: the counts first, else the AI's progress. */
+const outOfDate = computed(() => staleNote.value || progressNote.value)
+
 /** What the guide's live region says: Show it how's examples, or Try it's running count. */
 const liveCount = computed(() => {
   const line = liveLine.value
-  // The note goes with the count line only, not Try it's or Do the rest's.
-  return staleNote.value && showing.value === 'ready' && step.value === 'show' ? [line, staleNote.value].filter(Boolean).join(' ') : line
+  if (showing.value !== 'ready') return line
+  // Each note goes with the line it is about: the counts with Show it how's,
+  // the AI's progress with Try it's agreement count.
+  const note = step.value === 'show' ? staleNote.value : trying.value ? progressNote.value : ''
+  return note ? [line, note].filter(Boolean).join(' ') : line
 })
 const liveLine = computed(() => {
   if (showing.value !== 'ready') return ''
@@ -955,7 +963,7 @@ watch([stepView, showing], async ([next, state]) => {
     <!-- Phones in Show it how: one line, the six-segment bar and Details. -->
     <div v-if="showing === 'ready' && collapsible" class="vmlb-guide-folded">
       <div class="vmlb-guide-folded-line">
-        <p v-if="step === 'try'">Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <span class="vmlb-num">Agreed {{ check?.agreed ?? 0 }} of {{ check?.checked ?? 0 }}</span></p>
+        <p v-if="step === 'try'">Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <span class="vmlb-num">Agreed {{ check?.agreed ?? 0 }} of {{ check?.checked ?? 0 }}</span><span v-if="progressNote" class="vmlb-guide-folded-stale"> · may be out of date</span></p>
         <p v-else>Step {{ current + 1 }} of {{ GUIDE_STEPS.length }} · <span class="vmlb-num">{{ targets.total }} of {{ SHOW_TOTAL }} examples</span><span v-if="staleNote" class="vmlb-guide-folded-stale"> · may be out of date</span></p>
         <button
           ref="detailsToggle"
@@ -1024,7 +1032,7 @@ watch([stepView, showing], async ([next, state]) => {
         <hr class="vmlb-guide-rule" />
 
         <!-- Announced through the guide's live region above. -->
-        <p v-if="staleNote" class="vmlb-guide-stale">{{ staleNote }}</p>
+        <p v-if="outOfDate" class="vmlb-guide-stale">{{ outOfDate }}</p>
 
         <div v-if="sentencesError && pendingDescriptions" class="vmlb-guide-sentences-error">
           <p role="alert"><Icon name="alert" /> Your labels are saved, but their sentences aren't saved yet: {{ sentencesError }}</p>

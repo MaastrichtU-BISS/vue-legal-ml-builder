@@ -29,6 +29,9 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   /** The message of the refusal `errorCode` came with, whichever ref shows it. */
   const errorMessage = ref<string | null>(null)
   const notice = ref('')
+  /** The last refresh of what waits and the check was refused for too many
+   * requests: the refusal's words, with how long to wait. Empty otherwise. */
+  const progressWait = ref('')
   const isBusy = ref(false)
   /** The monthly limit of the shared key is used up. */
   const budgetExhausted = ref(false)
@@ -163,8 +166,12 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
     if (!ready.value) return
     try {
       await loadProgress(datasetId)
-    } catch {
+      progressWait.value = ''
+    } catch (err) {
       // A stale count is shown until the next refresh; the label itself was saved.
+      // Too many requests says so, with the wait, until a refresh works.
+      const refusal = err as LlmRefusalError
+      progressWait.value = refusal?.status === 429 && err instanceof Error ? err.message.trim() : ''
     }
   }
 
@@ -349,7 +356,7 @@ export function useLlmAssist(adapter: MLAdapter, pollIntervalMs = 3000) {
   onUnmounted(stopJob)
 
   return {
-    status, suggestions, agreement, prompt, promptError, error, errorCode, errorMessage, notice, isBusy, budgetExhausted, hasAccess, ready,
+    status, suggestions, agreement, prompt, promptError, error, errorCode, errorMessage, notice, progressWait, isBusy, budgetExhausted, hasAccess, ready,
     estimate, job, jobId, acceptedCount,
     refresh, refreshProgress, saveKey, deleteKey, acknowledge, suggest, bulkAccept, loadPrompt, savePrompt,
     suggestOne, suggestError,

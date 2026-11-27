@@ -540,6 +540,19 @@ describe('too many requests (BAIGLE #224)', () => {
     expect(err.message).toBe('Too many requests just now. Try again in 3 minutes.')
   })
 
+  it('names a 429 without a code rate_limited, so callers keyed on codes keep the wait', async () => {
+    stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': '60' } }))
+    const err = (await failure()) as Error & { code?: string }
+    expect(err.code).toBe('rate_limited')
+  })
+
+  it.each([['-1'], ['1.5']])('ignores a Retry-After of %s and takes the body\'s wait', async (header) => {
+    stubFetch(() => new Response(JSON.stringify({ retry_after: 180 }), { status: 429, headers: { 'Retry-After': header } }))
+    const err = await failure()
+    expect(err.retryAfter).toBe(180)
+    expect(err.message).toBe('Too many requests just now. Try again in 3 minutes.')
+  })
+
   it('says hours for a wait longer than an hour and a half', async () => {
     stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': '86400' } }))
     expect((await failure()).message).toBe('Too many requests just now. Try again in 24 hours.')
